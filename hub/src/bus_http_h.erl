@@ -51,16 +51,22 @@ within_deadline(Req, Fun) ->
 list_agents(Req) ->
     case cowboy_req:method(Req) of
         <<"GET">> ->
-            case discovery_cursor(Req) of
-                {ok, Cursor} ->
-                    case bus_store:list_agents_page(Cursor, maps:get(bus_deadline, Req)) of
-                        {ok, EncodedPage} -> encoded_json_reply(Req, 200, EncodedPage);
-                        {error, Reason} -> store_error(Req, Reason)
-                    end;
-                {error, Reason} -> store_error(Req, Reason)
+            case bus_dashboard_authority:allowed_read(Req) of
+                false -> error_reply(Req, 403, <<"forbidden">>, <<"request rejected">>);
+                true -> list_agents_page(Req)
             end;
         _ ->
             error_reply(Req, 405, <<"method_not_allowed">>, <<"GET required">>)
+    end.
+
+list_agents_page(Req) ->
+    case discovery_cursor(Req) of
+        {ok, Cursor} ->
+            case bus_store:list_agents_page(Cursor, maps:get(bus_deadline, Req)) of
+                {ok, EncodedPage} -> encoded_json_reply(Req, 200, EncodedPage);
+                {error, Reason} -> store_error(Req, Reason)
+            end;
+        {error, Reason} -> store_error(Req, Reason)
     end.
 
 discovery_cursor(Req) ->

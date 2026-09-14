@@ -11,6 +11,11 @@ init(#{bind_host := Host, port := Port}) ->
     Dispatch = cowboy_router:compile([
         {'_', [
             {"/health", bus_health_h, []},
+            {"/", bus_dashboard_h, redirect},
+            {"/dashboard/", bus_dashboard_h, index},
+            {"/dashboard/dashboard.css", bus_dashboard_h, css},
+            {"/dashboard/dashboard.js", bus_dashboard_h, dashboard},
+            {"/dashboard/protocol.js", bus_dashboard_h, protocol},
             {"/v1/agents", bus_http_h, list},
             {"/v1/agents/:agent_id", bus_http_h, agent},
             {"/v1/messages", bus_http_h, messages},

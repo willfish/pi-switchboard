@@ -1,0 +1,71 @@
+:root { color-scheme: light dark; --bg: #f3f5f7; --panel: #fff; --ink: #1b2838; --muted: #536274; --line: #ccd5df; --control-line: #8794a4; --accent: #175aa6; --tint: #edf4fd; --shadow: 0 3px 18px #182e4710; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111820; --panel: #1a2430; --ink: #edf2f8; --muted: #b0bfd0; --line: #425367; --control-line: #60758c; --accent: #8ec5ff; --tint: #23374f; --shadow: none; } }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #111820; --panel: #1a2430; --ink: #edf2f8; --muted: #b0bfd0; --line: #425367; --control-line: #60758c; --accent: #8ec5ff; --tint: #23374f; --shadow: none; }
+:root[data-theme="light"] { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, sans-serif; }
+main { max-width: 1440px; margin: auto; padding: 24px clamp(16px, 4vw, 56px); }
+h1, h2, p { margin: 0; }
+h1 { font-size: clamp(1.8rem, 3.8vw, 2rem); line-height: 1.2; letter-spacing: -.035em; }
+h2 { font-size: 1.1rem; }
+p + p { margin-top: 8px; }
+.eyebrow { font-size: .73rem; letter-spacing: .14em; font-weight: 750; color: var(--accent); margin-bottom: 12px; }
+.intro { color: var(--muted); margin-top: 12px; max-width: 680px; }
+.masthead, .connection, .section-heading { display: flex; justify-content: space-between; gap: 24px; align-items: center; }
+.masthead { align-items: flex-start; margin-bottom: 12px; }
+.panel, .metric { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.panel { padding: 16px; margin-bottom: 12px; }
+.unlock { display: grid; grid-template-columns: 1.5fr 1fr; gap: 36px; border-top: 3px solid var(--accent); }
+.unlock h2 { margin-bottom: 10px; }
+.unlock p { font-size: .9rem; }
+.unlock form { align-self: center; }
+.muted, footer { color: var(--muted); font-size: .85rem; }
+#status { font-weight: 700; }
+.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+label { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; font-weight: 650; min-width: 0; }
+input, select, button { font: inherit; border: 1px solid var(--control-line); border-radius: 6px; color: var(--ink); background: var(--panel); min-height: 44px; padding: 8px 12px; max-width: 100%; }
+input, select { width: 100%; }
+button { cursor: pointer; font-size: .875rem; font-weight: 650; }
+button:hover:not(:disabled) { background: var(--tint); border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+.primary { background: var(--tint); border-color: var(--accent); margin-top: 12px; }
+.check { flex-direction: row; align-items: center; white-space: nowrap; }
+.check input { width: 18px; min-height: 18px; accent-color: var(--accent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+.metric { padding: 10px 12px; }
+.metric span { font-size: 1.5rem; font-weight: 720; font-variant-numeric: tabular-nums; }
+.metric h2 { color: var(--muted); font-size: .8rem; font-weight: 550; }
+.filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.cards { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+.card { border: 1px solid var(--line); border-radius: 8px; min-width: 0; padding: 12px; }
+.work { min-width: 0; }
+.card h3 { font-size: 1.1rem; margin: 0 0 5px; }
+.peer { unicode-bidi: plaintext; overflow-wrap: anywhere; white-space: pre-wrap; min-width: 0; }
+bdi { overflow-wrap: anywhere; }
+.card .identity { font-size: .82rem; color: var(--muted); }
+.model { margin: 12px 0; font-size: .9rem; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.badge { background: var(--tint); border-radius: 4px; padding: 3px 8px; font-size: .73rem; font-weight: 650; }
+details { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 8px; }
+summary { cursor: pointer; color: var(--accent); font-size: .85rem; min-height: 44px; padding: 10px 0; }
+dl { margin: 8px 0 0; display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 3fr); gap: 10px; font-size: .8rem; }
+dt { color: var(--muted); }
+dd { margin: 0; min-width: 0; }
+.empty { padding: 36px 0; color: var(--muted); text-align: center; }
+.pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 24px; font-size: .8rem; }
+footer { max-width: 1000px; padding: 4px 0 20px; }
+.skip { position: absolute; left: 16px; top: -100px; background: var(--panel); color: var(--accent); padding: 12px; z-index: 1; }
+.skip:focus { top: 8px; }
+[hidden] { display: none !important; }
+@media (min-width: 1100px) {
+  .card { position: relative; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.6fr) 110px; column-gap: 12px; align-items: center; padding: 10px 12px; min-height: 66px; }
+  .card h3 { font-size: 1rem; margin-bottom: 0; }
+  .card .model, .card .badges, .card .identity { margin: 0; }
+  .card details { grid-column: 1 / -1; margin: 0; padding: 0; border: 0; }
+  .card summary { position: absolute; right: 12px; top: 10px; width: 110px; }
+  .card details[open] dl { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+}
+@media (min-width: 1400px) { .filters { grid-template-columns: minmax(0, 2fr) repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .unlock { grid-template-columns: 1fr; gap: 20px; } .connection { align-items: flex-start; flex-direction: column; } .cards { grid-template-columns: 1fr; } .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search { grid-column: span 2; } .metrics { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 440px) { main { padding: 24px 16px; } .panel { padding: 16px; } .masthead { flex-direction: column; gap: 16px; } .theme { width: 100%; } .metric { padding: 12px; } .metrics { gap: 8px; } .section-heading { align-items: flex-start; flex-direction: column; gap: 4px; } .actions { gap: 10px; } .pagination { gap: 8px; } dl { grid-template-columns: 1fr; gap: 4px; } dd { margin-bottom: 8px; } }

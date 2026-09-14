@@ -69,6 +69,7 @@
           ./hub/rebar.lock
           ./hub/src
           ./hub/config
+          ./hub/priv
         ];
       };
       hubTestSrc = nixpkgs.lib.fileset.toSource {
@@ -78,6 +79,7 @@
           ./hub/rebar.lock
           ./hub/src
           ./hub/config
+          ./hub/priv
           ./hub/test
           (nixpkgs.lib.fileset.fileFilter (file: file.hasExt "json") ./tests/fixtures)
         ];
@@ -156,6 +158,19 @@
           extension-tests = pkgs.callPackage ./nix/client-checks.nix {
             src = extensionTestSrc;
             dependencySrc = extensionDependencySrc;
+          };
+          dashboard-tests = pkgs.callPackage ./nix/dashboard-checks.nix {
+            src = nixpkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = nixpkgs.lib.fileset.unions [
+                ./hub/priv/dashboard
+                ./package.json
+                (nixpkgs.lib.fileset.fileFilter (file: file.hasExt "json") ./tests/fixtures)
+                (nixpkgs.lib.fileset.fileFilter (
+                  file: nixpkgs.lib.hasPrefix "dashboard" file.name && file.hasExt "mjs"
+                ) ./tests)
+              ];
+            };
           };
           integration = self.checks.${system}.hub-boot;
           hub-boot =

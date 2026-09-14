@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, writeFile, rm, readdir, readFile, readlink } from 'node:fs/promises';
 import { createServer, createConnection } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -247,6 +248,70 @@ for (const [name, contents] of [['missing', undefined], ['empty', '']]) {
       'hub must reject the credential specifically, not fail for an unrelated reason');
   });
 }
+
+test('packaged dashboard serves only fixed generic assets and preserves bearer-only discovery', { timeout: 20000 }, async t => {
+  const runtime = await start(t, token);
+  await ready(runtime);
+  const marker = 'packaged-dashboard-private-presence';
+  const put = await fetch(`${runtime.url}/v1/agents/${sender}`, {
+    method: 'PUT', headers, body: JSON.stringify({ ...agent(sender), label: marker }),
+    signal: AbortSignal.timeout(2000),
+  });
+  assert.equal(put.status, 204);
+  for (const [path, type] of [
+    ['/dashboard/', 'text/html'],
+    ['/dashboard/dashboard.css', 'text/css'],
+    ['/dashboard/dashboard.js', 'text/javascript'],
+    ['/dashboard/protocol.js', 'text/javascript'],
+  ]) {
+    const response = await fetch(runtime.url + path, { signal: AbortSignal.timeout(2000) });
+    assert.equal(response.status, 200, path);
+    assert.ok(response.headers.get('content-type')?.startsWith(type));
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('x-frame-options'), 'DENY');
+    assert.ok(response.headers.get('content-security-policy')?.includes("frame-ancestors 'none'"));
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+    const body = await response.text();
+    assert.ok(body.length > 0);
+    assert.ok(!body.includes(marker), 'private presence leaked into an asset');
+    assert.ok(!body.includes(token), 'credential leaked into an asset');
+  }
+  const head = await fetch(`${runtime.url}/dashboard/`, { method: 'HEAD', signal: AbortSignal.timeout(2000) });
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), '');
+  const redirect = await fetch(runtime.url + '/', { redirect: 'manual', signal: AbortSignal.timeout(2000) });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get('location'), '/dashboard/');
+  // Fetch may normalize forbidden Host overrides; send this authority explicitly.
+  const foreignHost = await new Promise((resolve, reject) => {
+    const request = httpRequest(`${runtime.url}/dashboard/`, {
+      headers: { host: `attacker.invalid:${runtime.port}` }, signal: AbortSignal.timeout(2000),
+    }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.once('error', reject);
+      response.once('end', () => resolve({ status: response.statusCode, body }));
+    });
+    request.once('error', reject);
+    request.end();
+  });
+  assert.equal(foreignHost.status, 403);
+  assert.equal(foreignHost.body, 'Forbidden');
+  const foreignOrigin = await fetch(`${runtime.url}/v1/agents`, {
+    headers: { ...headers, origin: 'http://attacker.invalid' }, signal: AbortSignal.timeout(2000),
+  });
+  assert.equal(foreignOrigin.status, 403);
+  const cookie = await fetch(`${runtime.url}/v1/agents`, {
+    headers: { cookie: `token=${token}` }, signal: AbortSignal.timeout(2000),
+  });
+  assert.equal(cookie.status, 401);
+  const native = await fetch(`${runtime.url}/v1/agents`, { headers, signal: AbortSignal.timeout(2000) });
+  assert.equal(native.status, 200);
+  assert.equal((await native.json()).agents.find(value => value.agentId === sender).receiving, false);
+});
 
 test('packaged hub registers, discovers and streams a notice, then stops', { timeout: 20000 }, async t => {
   const runtime = await start(t, token);

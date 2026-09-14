@@ -4,7 +4,7 @@ The hub is a volatile relay, not a job queue or remote-execution acknowledgement
 
 ## Trust and identity
 
-All `/v1` routes require `Authorization: Bearer <token>`. `/health` is unauthenticated liveness, not proof that the store can accept work. Restrict network access independently of the token.
+All `/v1` routes require `Authorization: Bearer <token>`. `/health` is unauthenticated liveness, not proof that the store can accept work. The unauthenticated `/dashboard/` shell and fixed assets contain no presence or credentials; its data requests use the same bearer-authenticated discovery API. Supplied browser origins must match the request origin for discovery reads; cross-site and same-site Fetch Metadata are refused, while native requests without browser metadata remain supported. No CORS or cookie authentication is provided. Restrict network access independently of the token.
 
 Every token holder can inspect presence and impersonate other peers. Presence exposes host, cwd, session name, label, provider/model and activity. This is for trusted peers, not hostile multi-user isolation.
 
@@ -17,6 +17,7 @@ Use UTF-8 JSON with exact schemas. Reject duplicate/unknown keys, malformed Unic
 | Method | Route | Result |
 |---|---|---|
 | GET | `/health` | `{"ok":true}` |
+| GET, HEAD | `/dashboard/` and fixed assets | Generic read-only viewer shell, no state |
 | PUT | `/v1/agents/:agentId` | Register/update, 204 |
 | DELETE | `/v1/agents/:agentId` | Remove, 204 |
 | GET | `/v1/agents[?cursor=…]` | One bounded discovery page |

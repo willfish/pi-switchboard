@@ -37,6 +37,10 @@ Before launching Pi, supply `PI_AGENT_BUS_URL` and `PI_AGENT_BUS_TOKEN` through 
 
 See [operations](docs/operations.md) for modules, credential handling, failure recovery and rollout checks, and [compatibility](docs/compatibility.md) before upgrading Pi.
 
+## Browser dashboard
+
+Open `/dashboard/` on the hub to inspect runtime presence, search and filter sessions, and view receiving/control state. Unlock with the hub token on a trusted device and network. The page only reads presence, but the token itself grants full hub access; it stays in page memory and is cleared on Lock or reload. Snapshot freshness is explicit, and the page never consumes inbox messages or starts agent work.
+
 ## Commands and tools
 
 | Command | Purpose |

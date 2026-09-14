@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>Pi Switchboard · Runtimes</title>
+  <link rel="stylesheet" href="/dashboard/dashboard.css">
+  <script type="module" src="/dashboard/dashboard.js"></script>
+</head>
+<body>
+  <a class="skip" href="#runtimes">Skip to runtimes</a>
+  <main>
+    <header class="masthead">
+      <div><p class="eyebrow">PI SWITCHBOARD / OPERATOR VIEW</p><h1>Runtime presence</h1>
+        <p class="intro">Registered runtimes, reported activity and receiving connections.</p></div>
+      <label class="theme">Appearance<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </header>
+    <section id="unlock-panel" class="panel unlock" aria-labelledby="unlock-title">
+      <div><h2 id="unlock-title">Unlock presence viewer</h2>
+        <p>This view only reads presence. <strong>The hub token is not read-only:</strong> it also grants registration changes, messaging and peer impersonation.</p>
+        <p>Use a trusted device and protected network. HTTP and the hostname alone do not establish tailnet protection. The token stays in this page’s memory until locked or closed.</p></div>
+      <form id="unlock-form" autocomplete="off">
+        <label for="token">Hub bearer token</label>
+        <input id="token" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" required aria-describedby="token-help">
+        <p id="token-help" class="muted">Never put the token in a URL. No browser storage is used.</p>
+        <button class="primary" type="submit">Unlock viewer</button>
+      </form>
+    </section>
+    <section class="connection panel" aria-label="Connection and freshness">
+      <div><p id="status" role="status" aria-live="polite">Locked. No presence loaded.</p>
+        <p id="freshness" class="muted">Last successful read: none · Server capture: unavailable</p>
+        <p id="network" class="muted" hidden>Browser reports offline. This does not establish hub availability.</p></div>
+      <div class="actions"><button id="refresh" type="button" disabled>Refresh</button>
+        <label class="check"><input id="auto" type="checkbox" checked>Auto refresh</label>
+        <button id="lock" type="button" disabled>Lock</button></div>
+    </section>
+    <section class="metrics" aria-label="Complete snapshot counts">
+      <div class="metric"><span id="registered-count">--</span><h2>Registered runtimes</h2></div>
+      <div class="metric"><span id="busy-count">--</span><h2>Busy</h2></div>
+      <div class="metric"><span id="receiving-count">--</span><h2>Receiving</h2></div>
+      <div class="metric"><span id="control-count">--</span><h2>Control enabled</h2></div>
+    </section>
+    <section id="runtimes" class="panel overview" aria-labelledby="runtimes-title" tabindex="-1">
+      <div class="section-heading"><h2 id="runtimes-title">Runtime overview</h2><div class="actions"><p id="matching" class="muted">Counts unavailable</p><button id="clear-filters" type="button">Clear filters</button></div></div>
+      <div class="filters">
+        <label class="search">Search<input id="search" type="search" maxlength="200" placeholder="Label, session, host, model or ID" autocomplete="off"></label>
+        <label>Host<select id="host"><option value="">All hosts</option></select></label>
+        <label>Sort by<select id="sort"><option value="label">Label</option><option value="host">Host</option><option value="model">Model</option><option value="activity">Activity</option></select></label>
+        <label>Activity<select id="activity"><option value="">Any activity</option><option value="busy">Busy</option><option value="idle">Idle</option></select></label>
+        <label>Receiving<select id="receiving"><option value="">Any connection</option><option value="true">Receiving</option><option value="false">Not receiving</option></select></label>
+        <label>Control<select id="control"><option value="">Any permission</option><option value="true">Control enabled</option><option value="false">Notice only</option></select></label>
+      </div>
+      <p id="empty" class="empty">Unlock to read runtime presence.</p>
+      <div id="cards" class="cards"></div>
+      <nav class="pagination" aria-label="Runtime pages"><button id="previous" type="button" disabled>Previous</button><span id="page">Page unavailable</span><button id="next" type="button" disabled>Next</button></nav>
+    </section>
+    <footer><p>Counts describe overlapping runtime properties, not people or tasks. Labels and activity are client reports, not proof of progress.</p>
+      <p>Receiving means a subscription, not delivery confirmation. There are no inboxes, read receipts or offline inventory here. Snapshots may be reused for 30 seconds; timestamps are not live heartbeats.</p></footer>
+    <noscript><p class="panel">JavaScript is required for this read-only viewer. No presence or credentials are embedded in this page.</p></noscript>
+  </main>
+</body>
+</html>
