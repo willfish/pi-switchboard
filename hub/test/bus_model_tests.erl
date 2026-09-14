@@ -353,8 +353,9 @@ envelope_message(Sender, Wall, Target) ->
 
 dedup_saturation_and_ordering_test() ->
     S = two_agents(100),
+    Base = notice(?A, ?B),
     Full = lists:foldl(fun(N, Acc) ->
-        Msg = (notice(?A, ?B))#{<<"id">> => uuid_n(N)},
+        Msg = Base#{<<"id">> => uuid_n(N)},
         {ok, Queued, _} = bus_model:accept_mail(Acc, Msg, 100, 50),
         {ok, Empty, _} = bus_model:pop_mail(Queued, ?B, 100),
         Empty
@@ -362,8 +363,8 @@ dedup_saturation_and_ordering_test() ->
     ?assertEqual(4096, map_size(maps:get(dedup, Full))),
     assert_bytes(0, Full),
     ?assertEqual({error, dedup_full}, bus_model:accept_mail(
-        Full, (notice(?A, ?B))#{<<"id">> => uuid_n(4097)}, 100, 50)),
-    Retry = (notice(?A, ?B))#{<<"id">> => uuid_n(1)},
+        Full, Base#{<<"id">> => uuid_n(4097)}, 100, 50)),
+    Retry = Base#{<<"id">> => uuid_n(1)},
     {ok, Full, Result} = bus_model:accept_mail(Full, Retry, 100, 50),
     Deleted = bus_model:delete_agent(bus_model:delete_agent(Full, ?A), ?B),
     ?assertEqual({ok, Deleted, Result}, bus_model:accept_mail(Deleted, Retry, 219, 999)),
