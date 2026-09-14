@@ -317,6 +317,11 @@ test('packaged hub registers, discovers and streams a notice, then stops', { tim
 
 test('packaged SIGTERM cancels active SSE with offline mail within five seconds', { timeout: 20000 }, async t => {
   const runtime = await start(t, token);
+  // Six one-shot events only. Never include payloads, stdio or process state.
+  const timings = [];
+  const mark = phase => timings.push({ phase, at: performance.now() });
+  runtime.child.once('exit', () => mark('child-exit'));
+  runtime.child.once('close', () => mark('child-close'));
   await ready(runtime);
   const ids = [sender, recipient, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     'dddddddd-dddd-4ddd-8ddd-dddddddddddd'];
@@ -331,6 +336,8 @@ test('packaged SIGTERM cancels active SSE with offline mail within five seconds'
     // Do not echo FIN or close locally when Cowboy shuts down its write side.
     const socket = createConnection({ host: '127.0.0.1', port: runtime.port, allowHalfOpen: true });
     t.after(() => socket.destroy());
+    const ordinal = streams.length + 1;
+    socket.once('end', () => mark(`socket-${ordinal}-eof`));
     const ended = once(socket, 'end');
     await once(socket, 'connect');
     const snapshot = new Promise((resolve, reject) => {
@@ -353,13 +360,33 @@ test('packaged SIGTERM cancels active SSE with offline mail within five seconds'
   assert.equal(accepted.status, 202);
   assert.equal((await accepted.json()).receiving, false);
   const started = performance.now();
-  assert.equal(runtime.child.kill('SIGTERM'), true);
-  const [code, signal] = await runtime.exited;
-  assert.equal(signal, null, 'ordinary stop must not require OS SIGKILL');
-  assert.equal(code, 0);
-  assert.ok(performance.now() - started < 5000, 'active SSE shutdown exceeded five seconds');
-  await Promise.all(streams.map(({ ended }) => ended));
-  for (const { socket } of streams) assert.equal(socket.writableEnded, false, 'no client-assisted close');
+  timings.push({ phase: 'sigterm', at: started });
+  let cleanupTimer;
+  const cleanupDeadline = new Promise((_, reject) => {
+    cleanupTimer = setTimeout(() => {
+      reject(new Error('active SSE shutdown reached independent ten-second cleanup deadline'));
+      if (runtime.child.exitCode === null && runtime.child.signalCode === null) {
+        runtime.child.kill('SIGKILL');
+      }
+      for (const { socket } of streams) socket.destroy();
+    }, 10000);
+  });
+  try {
+    assert.equal(runtime.child.kill('SIGTERM'), true);
+    await Promise.race([cleanupDeadline, (async () => {
+      const [code, signal] = await runtime.exited;
+      assert.equal(signal, null, 'ordinary stop must not require OS SIGKILL');
+      assert.equal(code, 0);
+      assert.ok(performance.now() - started < 5000, 'active SSE shutdown exceeded five seconds');
+      await Promise.all(streams.map(({ ended }) => ended));
+      for (const { socket } of streams) assert.equal(socket.writableEnded, false, 'no client-assisted close');
+    })()]);
+  } finally {
+    clearTimeout(cleanupTimer);
+    for (const { phase, at } of timings) {
+      t.diagnostic(JSON.stringify({ phase, elapsedMs: Number((at - started).toFixed(3)) }));
+    }
+  }
 });
 
 test('packaged listener preserves mail and dedup; store restart loses volatile state', { timeout: 30000 }, async t => {
