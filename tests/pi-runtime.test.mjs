@@ -796,8 +796,9 @@ test('steering consumes the exact slot and permits another steer in the same too
 test('concurrent processes opening one saved session have distinct runtime identities', { timeout: 60000 }, async t => {
   const f = await setup(t); const first = await f.launch();
   await first.submit('persist shared session'); await first.event('agent_settled');
-  const second = await f.launch({ session: first.started.sessionFile });
+  // Resuming shares the saved cwd, so identify the first runtime before launching another.
   const a = await f.receiving(first.cwd);
+  const second = await f.launch({ session: first.started.sessionFile });
   const b = await waitFor(async () => (await f.agents()).find(item => item.agentId !== a.agentId && item.sessionId === a.sessionId), 'second concurrent runtime on saved session');
   assert.notEqual(a.agentId, b.agentId); assert.notEqual(a.pid, b.pid);
   await second.quit();
