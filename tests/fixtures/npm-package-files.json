@@ -1,0 +1,19 @@
+[
+  "LICENSE",
+  "README.md",
+  "docs/compatibility.md",
+  "docs/operations.md",
+  "docs/protocol.md",
+  "extension/client.ts",
+  "extension/commands.ts",
+  "extension/inbox.ts",
+  "extension/index.ts",
+  "extension/presence.ts",
+  "extension/protocol.ts",
+  "extension/runtime.ts",
+  "extension/sse.ts",
+  "extension/tools.ts",
+  "extension/viewer.ts",
+  "index.ts",
+  "package.json"
+]

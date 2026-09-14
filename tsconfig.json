@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    // Pi 0.85.1 declaration JSON imports lack NodeNext attributes; GenAI also
+    // references an optional MCP peer. Check our code, not upstream declarations.
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["index.ts", "extension/**/*.ts"]
+}

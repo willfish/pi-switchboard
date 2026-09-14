@@ -1,0 +1,57 @@
+name: Native checks
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: macos-15
+            system: aarch64-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      EXPECTED_SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+      - name: Check CI script control flow
+        shell: bash
+        run: python3 -I .github/scripts/test-ci.py
+      - name: Verify Nix bootstrap
+        id: bootstrap
+        shell: bash
+        run: bash .github/scripts/prepare-nix.sh
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          install_url: ${{ steps.bootstrap.outputs.url }}
+          enable_kvm: ${{ runner.os == 'Linux' }}
+          extra_nix_config: |
+            sandbox = true
+            always-allow-substitutes = false
+            builders =
+            max-jobs = 1
+            system-features = nixos-test benchmark big-parallel
+      - name: Verify native runner and KVM capability
+        shell: bash
+        run: bash .github/scripts/native-preflight.sh
+      - name: Build and run native checks
+        shell: bash
+        run: bash .github/scripts/native-checks.sh

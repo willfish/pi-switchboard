@@ -1,0 +1,10 @@
+.direnv/
+result
+result-*
+node_modules/
+hub/_build/
+hub/_checkouts/
+hub/.rebar3/
+erl_crash.dump
+*.beam
+.nix-gc-roots/

@@ -1,0 +1,2 @@
+## Static secret-free VM arguments. No node name, cookie, remsh, or duplicate erl flags.
+-kernel shell_history disabled

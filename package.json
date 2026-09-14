@@ -1,0 +1,39 @@
+{
+  "name": "pi-switchboard",
+  "version": "0.1.0",
+  "description": "Pi Switchboard client: discover tailnet Pi sessions and send small messages",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/willfish/pi-switchboard.git"
+  },
+  "homepage": "https://github.com/willfish/pi-switchboard#readme",
+  "bugs": {
+    "url": "https://github.com/willfish/pi-switchboard/issues"
+  },
+  "files": ["index.ts", "extension/", "docs/", "README.md", "LICENSE"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "node --experimental-vm-modules --experimental-strip-types --test 'tests/!(pi-runtime).test.ts'",
+    "test:pi-runtime": "node --test tests/pi-runtime.test.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
+    "@types/node": "22.19.19",
+    "typebox": "1.3.7",
+    "typescript": "5.9.3"
+  }
+}

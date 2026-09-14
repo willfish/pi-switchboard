@@ -1,0 +1,16 @@
+#!/bin/sh
+# Run from the repository without fetching or changing locked dependencies.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$root/hub"
+found=false
+for dep in _checkouts/cowboy _build/*/lib/cowboy; do
+    test -d "$dep" || continue
+    sh "$root/scripts/patch-cowboy.sh" "$dep"
+    found=true
+done
+$found || { echo 'Pinned Cowboy sources must already be available' >&2; exit 1; }
+# Rebar treats ordinary dependencies as already built even after source edits.
+# Clean their compiled output so the verified patch cannot run with stale BEAMs.
+rebar3 clean --all
+exec rebar3 "$@"

@@ -1,0 +1,43 @@
+--- a/src/cowboy_http.erl
++++ b/src/cowboy_http.erl
+@@ -81,0 +82 @@
++	header_count = 0 :: non_neg_integer(),
+@@ -491,0 +493,3 @@
++		nomatch when byte_size(Buffer) =:= MaxLength + 1,
++				binary_part(Buffer, MaxLength, 1) =:= <<"\r">> ->
++			{more, State#state{buffer=Buffer, in_state=#ps_request_line{empty_lines=EmptyLines}}};
+@@ -496,0 +501,3 @@
++		Offset when Offset > MaxLength + 1 ->
++			error_terminate(414, State, {connection_error, limit_reached,
++				'The request-line length is larger than configuration allows. (RFC7230 3.1.1)'});
+@@ -649 +656 @@
+-	NumHeaders = maps:size(Headers),
++	NumHeaders = PS#ps_header.header_count,
+@@ -676,0 +684,4 @@
++		Offset when Offset > MaxLength ->
++			error_terminate(431, State#state{in_state=PS#ps_header{headers=Headers}},
++				{connection_error, limit_reached,
++					'A header name is larger than configuration allows. (RFC7230 3.2.5, RFC6585 5)'});
+@@ -707,0 +719,3 @@
++		nomatch when byte_size(Buffer) =:= MaxLength + 1,
++				binary_part(Buffer, MaxLength, 1) =:= <<"\r">> ->
++			{more, State#state{buffer=Buffer, in_state=PS#ps_header{headers=H, name=N}}};
+@@ -713,0 +728,4 @@
++		Offset when Offset > MaxLength + 1 ->
++			error_terminate(431, State#state{in_state=PS#ps_header{headers=H}},
++				{connection_error, limit_reached,
++					'A header value is larger than configuration allows. (RFC7230 3.2.5, RFC6585 5)'});
+@@ -718 +736,2 @@
+-parse_hd_value(<< $\r, $\n, Rest/bits >>, S, Headers0, Name, SoFar) ->
++parse_hd_value(<< $\r, $\n, Rest/bits >>, S=#state{opts=Opts, in_state=PS}, Headers0, Name, SoFar) ->
++	MaxLength = maps:get(max_header_value_length, Opts, 4096),
+@@ -721,0 +741,5 @@
++		%% Check before allocating the merged binary, including its separator.
++		Value0 when byte_size(Value0) + 2 + byte_size(Value) > MaxLength ->
++			error_terminate(431, S#state{in_state=PS#ps_header{headers=Headers0}},
++				{connection_error, limit_reached,
++					'A header value is larger than configuration allows. (RFC7230 3.2.5, RFC6585 5)'});
+@@ -726 +750,2 @@
+-	parse_header(Rest, S, Headers);
++	parse_header(Rest, S#state{in_state=PS#ps_header{
++		header_count=PS#ps_header.header_count + 1}}, Headers);

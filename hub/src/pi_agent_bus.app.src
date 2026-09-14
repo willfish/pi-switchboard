@@ -1,0 +1,14 @@
+{application, pi_agent_bus, [
+    {description, "Pi Switchboard hub"},
+    {vsn, "0.1.0"},
+    {modules, []},
+    {registered, [bus_sup, bus_store]},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto,
+        cowboy
+    ]},
+    {mod, {bus_app, []}},
+    {env, []}
+]}.
