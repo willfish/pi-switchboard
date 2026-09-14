@@ -20,10 +20,12 @@ init(#{bind_host := Host, port := Port}) ->
     TransOpts = #{
         logger => bus_log,
         num_acceptors => 16,
-        num_conns_sups => 16,
+        %% Connections stop concurrently within a group; multiple groups stop
+        %% sequentially and multiply the per-connection linger allowance.
+        num_conns_sups => 1,
         %% Ranch applies this soft ceiling per connection supervisor, not globally.
         %% Nominal 8,192 leaves headroom for the unbenchmarked 5,000-idle target.
-        max_connections => 512,
+        max_connections => 8192,
         connection_type => supervisor,
         socket_opts => [{ip, Ip}, {port, Port},
             {send_timeout, 5000}, {send_timeout_close, true}]

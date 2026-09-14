@@ -315,16 +315,18 @@ test('packaged hub registers, discovers and streams a notice, then stops', { tim
   assert.ok(Date.now() - started < 5000, 'SIGTERM exceeded five seconds');
 });
 
-test('packaged SIGTERM cancels active SSE with offline mail within five seconds', { timeout: 20000 }, async t => {
+for (const streamCount of [1, 3, 8, 16]) {
+test(`packaged SIGTERM cancels ${streamCount} active SSE streams with offline mail within five seconds`, { timeout: 20000 }, async t => {
   const runtime = await start(t, token);
-  // Six one-shot events only. Never include payloads, stdio or process state.
+  // One-shot events only, bounded by the fixture's stream count.
+  // Never include payloads, stdio or process state.
   const timings = [];
   const mark = phase => timings.push({ phase, at: performance.now() });
   runtime.child.once('exit', () => mark('child-exit'));
   runtime.child.once('close', () => mark('child-close'));
   await ready(runtime);
-  const ids = [sender, recipient, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-    'dddddddd-dddd-4ddd-8ddd-dddddddddddd'];
+  const ids = [sender, ...Array.from({ length: streamCount }, (_, index) =>
+    `${(index + 10).toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`)];
   for (const id of ids) {
     const response = await fetch(`${runtime.url}/v1/agents/${id}`, {
       method: 'PUT', headers, body: JSON.stringify(agent(id)), signal: AbortSignal.timeout(2000),
@@ -332,7 +334,7 @@ test('packaged SIGTERM cancels active SSE with offline mail within five seconds'
     assert.equal(response.status, 204);
   }
   const streams = [];
-  for (const id of ids.slice(0, 3)) {
+  for (const id of ids.slice(0, streamCount)) {
     // Do not echo FIN or close locally when Cowboy shuts down its write side.
     const socket = createConnection({ host: '127.0.0.1', port: runtime.port, allowHalfOpen: true });
     t.after(() => socket.destroy());
@@ -355,7 +357,7 @@ test('packaged SIGTERM cancels active SSE with offline mail within five seconds'
   const accepted = await fetch(`${runtime.url}/v1/messages`, {
     method: 'POST', headers, signal: AbortSignal.timeout(2000),
     body: JSON.stringify({ id: '55555555-5555-4555-8555-555555555555',
-      from: sender, to: ids[3], kind: 'notice', body: 'offline during shutdown' }),
+      from: sender, to: ids[streamCount], kind: 'notice', body: 'offline during shutdown' }),
   });
   assert.equal(accepted.status, 202);
   assert.equal((await accepted.json()).receiving, false);
@@ -388,6 +390,8 @@ test('packaged SIGTERM cancels active SSE with offline mail within five seconds'
     }
   }
 });
+
+}
 
 test('packaged listener preserves mail and dedup; store restart loses volatile state', { timeout: 30000 }, async t => {
   const runtime = await start(t, token);
