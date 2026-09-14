@@ -44,6 +44,52 @@ class CiScripts(unittest.TestCase):
         self.executable("uname", f'if [ "$1" = -s ]; then printf Darwin; else printf {arch}; fi')
         self.executable("sysctl", f"printf {translated}")
 
+    def linux(self, probe_status=0, system="x86_64-linux", sudo_status=0, restart_status=0):
+        self.native(arch="x86_64", system=system)
+        self.env["EXPECTED_SYSTEM"] = "x86_64-linux"
+        self.executable("uname", 'if [ "$1" = -s ]; then printf Linux; else printf x86_64; fi')
+        # Model device availability independently of the machine running these fixtures.
+        startup = self.path / "bash-env"
+        startup.write_text('test() { if [[ "$1" = -c && "$2" = /dev/kvm ]]; then return 0; fi; builtin test "$@"; }\n')
+        self.env["BASH_ENV"] = str(startup)
+        self.executable("python3", 'printf "host-probe\\n" >> "$RUNNER_TEMP/order"\n'
+                        f'exit {probe_status}')
+        self.executable("sudo", 'printf "%s\\n" "$*" >> "$RUNNER_TEMP/order"\n'
+                        f'[ {sudo_status} = 0 ] || exit {sudo_status}\n'
+                        f'if [ "$1" = systemctl ]; then exit {restart_status}; fi\n'
+                        'if [ "$1" = tee ]; then while IFS= read -r line; do '
+                        'printf "%s\\n" "$line" >> "$RUNNER_TEMP/daemon-config"; done; fi')
+
+    def test_linux_advertises_daemon_kvm_only_after_host_proof(self):
+        self.linux()
+        result = self.run_script("native-preflight.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.path / "order").read_text().splitlines(),
+                         ["host-probe", "tee -a /etc/nix/nix.conf", "systemctl restart nix-daemon.service"])
+        self.assertEqual((self.path / "daemon-config").read_text(), "extra-system-features = kvm\n")
+        self.assertEqual((self.path / "environment").read_text(),
+                         "NIX_SYSTEM_FEATURES=nixos-test benchmark big-parallel kvm\n")
+
+    def test_failed_linux_proof_never_changes_daemon_or_exports_features(self):
+        for options in [{"probe_status": 1}, {"system": "aarch64-darwin"}]:
+            with self.subTest(options=options):
+                (self.path / "order").unlink(missing_ok=True)
+                self.linux(**options)
+                self.assertNotEqual(self.run_script("native-preflight.sh").returncode, 0)
+                self.assertEqual((self.path / "order").read_text(), "host-probe\n")
+                self.assertFalse((self.path / "environment").exists())
+                self.assertFalse((self.path / "daemon-config").exists())
+
+    def test_linux_daemon_configuration_failure_stops_preflight(self):
+        self.linux(sudo_status=1)
+        self.assertNotEqual(self.run_script("native-preflight.sh").returncode, 0)
+        self.assertFalse((self.path / "environment").exists())
+
+    def test_linux_daemon_restart_failure_stops_preflight(self):
+        self.linux(restart_status=1)
+        self.assertNotEqual(self.run_script("native-preflight.sh").returncode, 0)
+        self.assertFalse((self.path / "environment").exists())
+
     def test_existing_nix_stops_before_download(self):
         self.bootstrap()
         self.executable("nix", "exit 0")

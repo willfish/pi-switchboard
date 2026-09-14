@@ -32,5 +32,12 @@ PY
 esac
 actual=$(nix eval --impure --raw --expr builtins.currentSystem)
 test "$actual" = "$EXPECTED_SYSTEM" || { echo 'Nix native system differs from runner matrix' >&2; exit 1; }
+# Client --option system-features does not update the multi-user daemon's
+# scheduler. Advertise KVM there only after the native host checks above pass;
+# native-checks.sh still proves access from an actual sandbox before VM tests.
+if [[ "$EXPECTED_SYSTEM" = x86_64-linux ]]; then
+  printf 'extra-system-features = kvm\n' | sudo tee -a /etc/nix/nix.conf > /dev/null
+  sudo systemctl restart nix-daemon.service
+fi
 # Never dump Nix configuration: the installer can store its read-only GitHub token there.
 printf 'NIX_SYSTEM_FEATURES=%s\n' "$features" >> "$GITHUB_ENV"
