@@ -1,6 +1,6 @@
 -module(bus_dashboard_authority).
 
--export([allowed_host/1, allowed_origin/1, allowed_read/1]).
+-export([allowed_host/1, allowed_origin/1, allowed_read/1, allowed_mutation/1]).
 
 allowed_host(Req) ->
     {LocalIp, LocalPort} = cowboy_req:sock(Req),
@@ -45,6 +45,14 @@ allowed_read(Req) ->
             <<"none">> -> true;
             _ -> false
         end.
+
+%% Operator bootstrap/mutations need an Origin before any session allocation.
+%% Keep the legacy/native read policy's absent-Origin behavior unchanged.
+allowed_mutation(Req) ->
+    try
+        is_binary(cowboy_req:header(<<"origin">>, Req)) andalso
+            allowed_host(Req) andalso allowed_read(Req)
+    catch _:_ -> false end.
 
 default_port(<<"http">>) -> 80;
 default_port(<<"https">>) -> 443;

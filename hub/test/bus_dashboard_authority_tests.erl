@@ -57,3 +57,23 @@ fetch_metadata_test() ->
         ?assert(bus_dashboard_authority:allowed_read(req(<<"localhost">>, 7420, Headers)))
     end, [#{}, #{<<"sec-fetch-site">> => <<"same-origin">>},
           #{<<"sec-fetch-site">> => <<"none">>}]).
+
+mutation_requires_origin_without_changing_read_contract_test() ->
+    R = req(<<"localhost">>, 7420, #{}),
+    ?assert(bus_dashboard_authority:allowed_read(R)),
+    ?assertNot(bus_dashboard_authority:allowed_mutation(R)),
+    ?assert(bus_dashboard_authority:allowed_mutation(R#{headers :=
+        #{<<"origin">> => <<"http://localhost:7420">>}})).
+
+mutation_rejects_foreign_or_ambiguous_authority_test() ->
+    R = req(<<"localhost">>, 7420, #{}),
+    lists:foreach(fun(Headers) ->
+        ?assertNot(bus_dashboard_authority:allowed_mutation(R#{headers := Headers}))
+    end, [#{<<"origin">> => <<"null">>},
+          #{<<"origin">> => <<"http://localhost.:7420">>},
+          #{<<"origin">> => <<"http://localhost:7420, http://localhost:7420">>},
+          #{<<"origin">> => <<"http://localhost:7420">>, <<"sec-fetch-site">> => <<"cross-site">>},
+          #{<<"origin">> => <<"http://localhost:7420">>, <<"sec-fetch-site">> => <<"same-site">>}]),
+    ?assertNot(bus_dashboard_authority:allowed_mutation(req(<<"foreign.invalid">>, 7420,
+        #{<<"origin">> => <<"http://foreign.invalid:7420">>}))),
+    ?assertNot(bus_dashboard_authority:allowed_mutation(#{headers => #{<<"origin">> => <<"http://localhost:7420">>}})).
