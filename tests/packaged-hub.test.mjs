@@ -53,7 +53,7 @@ const runtimeProbe = `spawn(fun Wait() ->
       file:delete(filename:join(D, "fault.request")),
       Current = fun(<<"store">>) -> whereis(bus_store);
         (<<"listener">>) ->
-          [P] = [P || {Id,P,_,_} <- supervisor:which_children(bus_sup), Id =/= bus_store, is_pid(P)], P
+          {_, P, _, _} = lists:keyfind({ranch_embedded_sup, bus_http}, 1, supervisor:which_children(bus_sup)), P
       end,
       Old = Current(Kind),
       Mon = monitor(process, Old),
@@ -76,7 +76,7 @@ const runtimeProbe = `spawn(fun Wait() ->
   receive after 10 -> Wait() end
 end).`;
 
-async function start(t, tokenContents) {
+async function start(t, tokenContents, operatorAccess) {
   const directory = await mkdtemp(join(tmpdir(), 'switchboard-packaged-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const tokenFile = join(directory, 'token');
@@ -93,6 +93,7 @@ async function start(t, tokenContents) {
       PI_AGENT_BUS_BIND_HOST: '127.0.0.1',
       PI_AGENT_BUS_PORT: String(port),
       PI_AGENT_BUS_TOKEN_FILE: tokenFile,
+      ...(operatorAccess ? { PI_AGENT_BUS_OPERATOR_ACCESS: operatorAccess } : {}),
       ERL_CRASH_DUMP: join(directory, 'forbidden.dump'),
     },
     stdio: ['ignore', 'ignore', 'pipe'],
@@ -263,6 +264,7 @@ test('packaged dashboard serves only fixed generic assets and preserves bearer-o
     ['/dashboard/dashboard.css', 'text/css'],
     ['/dashboard/dashboard.js', 'text/javascript'],
     ['/dashboard/protocol.js', 'text/javascript'],
+    ['/dashboard/operator-session.js', 'text/javascript'],
   ]) {
     const response = await fetch(runtime.url + path, { signal: AbortSignal.timeout(2000) });
     assert.equal(response.status, 200, path);
@@ -311,6 +313,32 @@ test('packaged dashboard serves only fixed generic assets and preserves bearer-o
   const native = await fetch(`${runtime.url}/v1/agents`, { headers, signal: AbortSignal.timeout(2000) });
   assert.equal(native.status, 200);
   assert.equal((await native.json()).agents.find(value => value.agentId === sender).receiving, false);
+});
+
+test('packaged operator API bootstraps without exposing native authority and survives listener recovery', { timeout: 20000 }, async t => {
+  const runtime = await start(t, 'synthetic-operator-native-token', 'loopback');
+  await ready(runtime);
+  const post = (path, session) => fetch(runtime.url + path, {
+    method: 'POST', redirect: 'error',
+    headers: { Origin: runtime.url, 'Content-Type': 'application/json',
+      ...(session ? { 'X-Switchboard-Session': session } : {}) }, body: '{}',
+  });
+  const created = await post('/dashboard/api/v1/session');
+  assert.equal(created.status, 200);
+  const { session } = await created.json();
+  assert.match(session, /^[0-9a-f]{64}$/);
+  const read = () => fetch(runtime.url + '/dashboard/api/v1/presence', {
+    headers: { 'X-Switchboard-Session': session }, redirect: 'error',
+  });
+  assert.equal((await read()).status, 200);
+  assert.equal((await fetch(runtime.url + '/v1/agents', {
+    headers: { Authorization: `Bearer ${session}` },
+  })).status, 401);
+  assert.equal((await post('/dashboard/api/v1/disconnect', session)).status, 204);
+  assert.equal((await read()).status, 401);
+  await checkRuntimeIsolation(runtime);
+  await injectFault(runtime, 'listener');
+  assert.equal((await post('/dashboard/api/v1/session')).status, 200);
 });
 
 test('packaged hub registers, discovers and streams a notice, then stops', { timeout: 20000 }, async t => {

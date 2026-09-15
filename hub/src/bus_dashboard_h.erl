@@ -29,7 +29,7 @@ init(Req, Asset) ->
 %% Accept only canonical raw paths, even when an alias resolves to this handler.
 paths() -> [<<"/">>, <<"/dashboard">>, <<"/dashboard/">>,
     <<"/dashboard/dashboard.css">>, <<"/dashboard/dashboard.js">>,
-    <<"/dashboard/protocol.js">>].
+    <<"/dashboard/protocol.js">>, <<"/dashboard/operator-session.js">>].
 
 serve(Req, redirect, Headers) ->
     cowboy_req:reply(302, Headers#{<<"location">> => <<"/dashboard/">>}, <<>>, Req);
@@ -53,4 +53,5 @@ serve_asset(Req, Asset, Headers) ->
 asset(index) -> {"index.html", <<"text/html; charset=utf-8">>};
 asset(css) -> {"dashboard.css", <<"text/css; charset=utf-8">>};
 asset(dashboard) -> {"dashboard.js", <<"text/javascript; charset=utf-8">>};
-asset(protocol) -> {"protocol.js", <<"text/javascript; charset=utf-8">>}.
+asset(protocol) -> {"protocol.js", <<"text/javascript; charset=utf-8">>};
+asset(operator_session) -> {"operator-session.js", <<"text/javascript; charset=utf-8">>}.

@@ -1,13 +1,14 @@
 -module(bus_app).
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([start/2, stop/1, operator_access/0, valid_interface_name/1]).
 
 start(_StartType, _StartArgs) ->
     ok = bus_log:install(),
     case load_config() of
         {ok, #{bind_host := Host, port := Port, token := Token}} ->
             ok = application:set_env(pi_agent_bus, token, Token),
+            ok = application:set_env(pi_agent_bus, operator_access, operator_access()),
             bus_sup:start_link(#{bind_host => Host, port => Port});
         {error, Reason} ->
             io:format(standard_error, "pi_agent_bus failed to start: ~p~n", [sanitize(Reason)]),
@@ -104,3 +105,41 @@ sanitize({token_file, eperm}) -> {token_file, eperm};
 sanitize({token_file, eisdir}) -> {token_file, eisdir};
 sanitize({token_file, _}) -> token_file_unreadable;
 sanitize(_) -> configuration_error.
+
+%% Optional. Unknown values fail closed to disabled and never log the raw env.
+operator_access() ->
+    case os:getenv("PI_AGENT_BUS_OPERATOR_ACCESS") of
+        false -> disabled;
+        "" -> disabled;
+        "disabled" -> disabled;
+        "loopback" -> loopback;
+        "tailnet" ->
+            case operator_interface() of
+                {ok, Name} -> {tailnet, Name};
+                error -> disabled
+            end;
+        _ -> disabled
+    end.
+
+valid_interface_name(Name) when is_list(Name), length(Name) > 0, length(Name) =< 64 ->
+    lists:all(fun interface_char/1, Name);
+valid_interface_name(_) -> false.
+
+operator_interface() ->
+    case os:getenv("PI_AGENT_BUS_OPERATOR_INTERFACE") of
+        false -> {ok, "tailscale0"};
+        "" -> {ok, "tailscale0"};
+        Name ->
+            case valid_interface_name(Name) of
+                true -> {ok, Name};
+                false -> error
+            end
+    end.
+
+interface_char(C) when C >= $a, C =< $z -> true;
+interface_char(C) when C >= $A, C =< $Z -> true;
+interface_char(C) when C >= $0, C =< $9 -> true;
+interface_char($.) -> true;
+interface_char($_) -> true;
+interface_char($-) -> true;
+interface_char(_) -> false.

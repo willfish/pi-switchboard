@@ -50,6 +50,29 @@ let
     tokenFile = tokenPath;
   };
   enabledHome = evalHome hmModule { enable = true; };
+  loopbackOperator = evalNixos nixosModule {
+    enable = true;
+    tokenFile = tokenPath;
+    operatorAccess = "loopback";
+  };
+  tailnetOperator =
+    extra:
+    evalNixos
+      {
+        imports = [
+          nixosModule
+          {
+            services.tailscale.enable = true;
+            networking.firewall.trustedInterfaces = [ "tailscale0" ];
+          }
+          extra
+        ];
+      }
+      {
+        enable = true;
+        tokenFile = tokenPath;
+        operatorAccess = "tailnet";
+      };
   overrideHub = pkgs.runCommand "pi-agent-bus-override" { } ''
     mkdir -p "$out/bin"
     printf '#!/bin/sh\nexit 0\n' > "$out/bin/pi-agent-bus"
@@ -144,6 +167,8 @@ let
       builtins.attrNames enabledNixos.options.services.pi-agent-bus == [
         "enable"
         "listenAddress"
+        "operatorAccess"
+        "operatorInterface"
         "package"
         "port"
         "tokenFile"
@@ -154,6 +179,61 @@ let
     assert service.environment.PI_AGENT_BUS_BIND_HOST == "127.0.0.1";
     assert service.environment.PI_AGENT_BUS_PORT == "7420";
     assert service.environment.PI_AGENT_BUS_TOKEN_FILE == "%d/bus-token";
+    assert service.environment.PI_AGENT_BUS_OPERATOR_ACCESS == "disabled";
+    assert service.environment.PI_AGENT_BUS_OPERATOR_INTERFACE == "tailscale0";
+    assert valid loopbackOperator;
+    assert
+      loopbackOperator.config.systemd.services.pi-agent-bus.environment.PI_AGENT_BUS_OPERATOR_ACCESS
+      == "loopback";
+    assert valid (tailnetOperator { });
+    assert
+      !(valid (tailnetOperator {
+        networking.firewall.enable = false;
+      }));
+    assert
+      !(valid (tailnetOperator {
+        services.tailscale.enable = lib.mkForce false;
+      }));
+    assert
+      !(valid (tailnetOperator {
+        networking.firewall.allowedTCPPorts = [ 7420 ];
+      }));
+    assert
+      !(valid (tailnetOperator {
+        networking.firewall.allowedTCPPortRanges = [
+          {
+            from = 7400;
+            to = 7500;
+          }
+        ];
+      }));
+    assert
+      !(valid (tailnetOperator {
+        networking.firewall.trustedInterfaces = [ "eth0" ];
+      }));
+    assert
+      !(valid (tailnetOperator {
+        networking.firewall.interfaces.eth0.allowedTCPPorts = [ 7420 ];
+      }));
+    assert
+      !(valid (tailnetOperator {
+        networking.firewall.interfaces.eth0.allowedTCPPortRanges = [
+          {
+            from = 7400;
+            to = 7500;
+          }
+        ];
+      }));
+    assert
+      !(valid (tailnetOperator {
+        services.pi-agent-bus.operatorInterface = "other0";
+      }));
+    assert rejects { operatorAccess = "unknown"; };
+    assert rejects { operatorInterface = "../namespace"; };
+    assert valid (tailnetOperator {
+      networking.firewall.trustedInterfaces = lib.mkForce [ ];
+      networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 7420 ];
+    });
     assert service.environment.ERL_CRASH_DUMP == "/dev/null";
     assert hardening.LoadCredential == [ "bus-token:${tokenPath}" ];
     assert lib.elem "LoadCredential=bus-token:${tokenPath}" (lib.splitString "\n" unit);

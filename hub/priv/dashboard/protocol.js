@@ -39,8 +39,7 @@ export function isPage(v) {
     && (v.nextCursor === null || (typeof v.nextCursor === 'string'
       && /^[A-Za-z0-9_-]{1,64}$/.test(v.nextCursor) && v.nextCursor === cursorFor(v.snapshotId, v.page + 1)));
 }
-export function decodePage(bytes) {
-  if (bytes.byteLength > LIMITS.pageBytes) fail('limit');
+export function decodeExactJson(bytes) {
   try {
     const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     const value = JSON.parse(text);
@@ -61,6 +60,13 @@ export function decodePage(bytes) {
         }
       }
     }
+    return value;
+  } catch { fail('schema'); }
+}
+export function decodePage(bytes) {
+  if (bytes.byteLength > LIMITS.pageBytes) fail('limit');
+  try {
+    const value = decodeExactJson(bytes);
     if (!isPage(value)) fail();
     return value;
   } catch { fail('schema'); }
@@ -94,7 +100,7 @@ export function createStage() {
 }
 
 // Race every await against abort, including mocks/transports that ignore AbortSignal.
-function abortable(promise, signal) {
+export function abortable(promise, signal) {
   if (signal.aborted) return Promise.reject(new DiscoveryError('cancelled'));
   return new Promise((resolve, reject) => {
     const abort = () => { cleanup(); reject(new DiscoveryError('cancelled')); };
@@ -103,7 +109,13 @@ function abortable(promise, signal) {
     Promise.resolve(promise).then((v) => { cleanup(); resolve(v); }, (e) => { cleanup(); reject(e); });
   });
 }
-export async function discover(token, { signal, fetch: fetcher = globalThis.fetch,
+export async function discover(token, opts = {}) {
+  return discoverPresence({
+    ...opts,
+    path: '/v1/agents', headers: { Authorization: `Bearer ${token}` },
+  });
+}
+export async function discoverPresence({ path, headers, signal, fetch: fetcher = globalThis.fetch,
   now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const traversal = new AbortController();
   const cancel = () => traversal.abort();
@@ -128,8 +140,8 @@ export async function discover(token, { signal, fetch: fetcher = globalThis.fetc
       const timer = setTimer(() => { timedOut = true; request.abort(); }, LIMITS.requestMs);
       let reader;
       try {
-        const response = await abortable(fetcher(`/v1/agents${cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`}`, {
-          method: 'GET', headers: { Authorization: `Bearer ${token}` }, credentials: 'omit',
+        const response = await abortable(fetcher(`${path}${cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`}`, {
+          method: 'GET', headers, credentials: 'omit',
           redirect: 'error', cache: 'no-store', mode: 'same-origin', referrerPolicy: 'no-referrer', signal: request.signal,
         }), request.signal);
         check();

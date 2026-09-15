@@ -28,9 +28,8 @@ listener_crash_preserves_store(Config) ->
     true = Agents0 =/= [],
     Store = whereis(bus_store),
     Children = supervisor:which_children(bus_sup),
-    [{ListenerId, Listener}] = [
-        {Id, P} || {Id, P, _, _} <- Children, Id =/= bus_store, is_pid(P)
-    ],
+    ListenerId = {ranch_embedded_sup, bus_http},
+    {ListenerId, Listener, _, _} = lists:keyfind(ListenerId, 1, Children),
     Monitor = monitor(process, Listener),
     exit(Listener, kill),
     receive {'DOWN', Monitor, process, Listener, killed} -> ok

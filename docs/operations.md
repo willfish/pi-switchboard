@@ -42,15 +42,26 @@ To rotate credentials, update the private runtime secret, restart the hub, and r
 
 Open `/dashboard/` on the hub's existing origin, using its hostname, a local IP address or loopback and the actual listener port. Keep access on the trusted tailnet or loopback; the dashboard does not open a firewall, add HTTPS or prove which network path the browser used. Unrecognized authorities and mismatched browser origins are refused rather than trusted through forwarding headers.
 
-Unlock with the configured hub token from your trusted credential manager. **The viewer only reads presence, but this token also permits registration changes, messaging and peer impersonation.** Use a trusted device. Never put the token in a URL. The page keeps it only in memory, clears the input after submission, and does not use browser storage or cookies. Lock, authentication failure and page teardown clear credentials and displayed state. Browser extensions, password managers and developer tools remain outside that protection.
+Operator access is disabled by default. For local-only use, set `services.pi-agent-bus.operatorAccess = "loopback"`. For a verified tailnet deployment, use:
+
+```nix
+services.pi-agent-bus.operatorAccess = "tailnet";
+services.pi-agent-bus.operatorInterface = "tailscale0";
+```
+
+Tailnet mode requires the enabled firewall and managed Tailscale interface, with this TCP port allowed only on that interface or loopback. The module rejects known broad TCP allowances and unrelated trusted interfaces; it does not modify them. Review custom firewall/forwarding rules and verify actual ingress separately. Matching a kernel interface address is an additional check, not proof of the incoming interface or human identity.
+
+Once enabled, open the page and it connects automatically. There is no password, pairing code or token to copy. **Every peer permitted by the network policy is an operator**, not only the tailnet owner. The page receives an expiring, per-view request nonce held in memory; the relay bearer is never sent to it. Requests use a non-ambient session header, exact mutation-Origin checks and no CORS grants. These protections resist cross-site browser actions, not compromise of a trusted device or same-origin script. A stolen operator nonce remains usable on an admitted route until invalidated/expired, but cannot authenticate legacy native APIs.
+
+Disconnect and clear stops this view and clears its private state while attempting bounded server invalidation. Reconnect is credential-free while network access remains permitted, so this is not a security lock or permanent access revocation. Other tabs have independent sessions. No operator credentials are stored in URLs, cookies or browser storage. Existing tailnet HTTP relies on VPN transport protection, not browser HTTPS guarantees.
 
 The dashboard reads discovery pages without registering a runtime, opening an agent event stream or consuming messages. It has no send, steer, delete or consent controls. Inbox contents, human-read state, delivery receipts and historical activity are not available here.
 
-Summary counts describe the entire successfully read snapshot, while search and filters narrow the visible rows. One row is one running Pi identity, not a person or saved session. Labels/activity are client reports; receiving means the hub observes a subscription, not confirmed delivery. Details expose full identifiers, cwd and the last registration timestamp for disambiguation.
+Summary counts describe the entire successfully read snapshot, while search and filters narrow the visible rows. One row is one running Pi identity, not a person or saved session. Labels/activity are client reports; receiving means the hub observes a subscription, not confirmed delivery. Details expose full identifiers, cwd and the last registration timestamp for disambiguation. Reported peer-control permission is not a grant of operator management capabilities.
 
 Automatic refresh runs fifteen seconds after the previous read finishes and pauses while hidden. Snapshot captures can be reused for thirty seconds, so distinguish the last successful read from the server's capture time. Errors and changing-page resets discard incomplete data rather than showing partial counts. A valid empty snapshot is different from unavailable data or a filter with no matches. Heavy churn, slow transport or snapshot limits can prevent a complete read; use the displayed error and manual refresh rather than inferring that missing agents are offline.
 
-## Failure recovery
+## Native Pi client failure recovery
 
 - `connected`: recent registration and synchronized reception.
 - `degraded`: registration is live but reception is unavailable.

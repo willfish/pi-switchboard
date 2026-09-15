@@ -1,0 +1,23 @@
+-module(bus_operator_sup).
+-behaviour(supervisor).
+
+%% Operator subtree. Init does not query interfaces or other recoverable
+%% dependencies. Auth may restart within a bounded budget. The HTTP-lifetime
+%% gate is temporary: a fresh quota table must not appear beside old
+%% connections. Gate recovery is listener/service recovery that closes those
+%% connections and reconstructs this subtree.
+-export([start_link/0, init/1]).
+
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+init([]) ->
+    Auth = #{id => bus_operator_auth,
+        start => {bus_operator_auth, start_link, []},
+        restart => permanent, shutdown => 5000, type => worker,
+        modules => [bus_operator_auth]},
+    Gate = #{id => bus_operator_http_gate,
+        start => {bus_operator_http_gate, start_link, []},
+        restart => temporary, shutdown => 5000, type => worker,
+        modules => [bus_operator_http_gate]},
+    {ok, {#{strategy => one_for_one, intensity => 3, period => 5}, [Auth, Gate]}}.

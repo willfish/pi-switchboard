@@ -39,7 +39,7 @@ See [operations](docs/operations.md) for modules, credential handling, failure r
 
 ## Browser dashboard
 
-Open `/dashboard/` on the hub to inspect runtime presence, search and filter sessions, and view receiving/control state. Unlock with the hub token on a trusted device and network. The page only reads presence, but the token itself grants full hub access; it stays in page memory and is cleared on Lock or reload. Snapshot freshness is explicit, and the page never consumes inbox messages or starts agent work.
+Enable operator access for loopback or a verified tailnet boundary, then open `/dashboard/` to inspect runtime presence, search and filter sessions, and view receiving/peer-control state. The page connects automatically: no password, pairing or copied token. Network-permitted peers are operators; the relay bearer stays out of the browser. Snapshot freshness is explicit, and this presence view never consumes inbox messages or starts agent work. See [operations](docs/operations.md#browser-dashboard) for the access boundary and configuration.
 
 ## Commands and tools
 

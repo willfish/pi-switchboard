@@ -25,7 +25,7 @@ static_security(Config) ->
         {403, _, _} = get(Config, Path, Host,
             [{<<"origin">>, <<"http://attacker.test">>}])
     end, ["/dashboard/", "/dashboard/dashboard.css", "/dashboard/dashboard.js",
-          "/dashboard/protocol.js"]),
+          "/dashboard/protocol.js", "/dashboard/operator-session.js"]),
     lists:foreach(fun(Path) ->
         {302, H, <<>>} = get(Config, Path, Host, []),
         <<"/dashboard/">> = maps:get(<<"location">>, H)

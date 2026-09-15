@@ -1,62 +1,84 @@
-import { discover } from './protocol.js';
+import { createOperatorSession } from './operator-session.js';
 
 const ERRORS = Object.freeze({ reset: 'Presence changed during the read. Refresh to try a new snapshot.',
   schema: 'The hub returned invalid presence data.', limit: 'The read exceeded a presence size limit.',
-  timeout: 'The presence read exceeded its time limit.', transport: 'Could not read presence from the hub.' });
+  timeout: 'The presence read exceeded its time limit.', transport: 'Could not read presence from the hub.',
+  disabled: 'Operator access is disabled on this hub.',
+  forbidden: 'Operator access was denied for this request.',
+  unauthorized: 'Operator access was rejected for this network path.',
+  unavailable: 'Operator access is temporarily unavailable.',
+  cancelled: 'The operator request was cancelled.',
+  disconnected: 'This view is disconnected.' });
 
-// Token and request ownership are closure-private, never part of render state.
-export function createController({ load = discover, render = () => {}, now = Date.now,
-  setTimer = setTimeout, clearTimer = clearTimeout, hidden = false } = {}) {
-  let token = '', generation = 0, active = null, timer = null, failures = 0;
-  let state = { unlocked: false, loading: false, auto: true, hidden, snapshot: null,
-    lastSuccess: null, error: '', retryMs: 15000 };
-  const emit = () => render({ ...state });
+export function createController({ operator, fetch: fetcher, now = Date.now,
+  setTimer = setTimeout, clearTimer = clearTimeout, render = () => {}, hidden = false } = {}) {
+  const session = operator ?? createOperatorSession({ fetch: fetcher });
+  let generation = 0, active = null, timer = null, failures = 0, userDisconnected = false, lastCode = '';
+  let state = { connected: true, loading: true, auto: true, hidden, snapshot: null,
+    lastSuccess: null, error: '', retryMs: 15000, invalidation: null };
+  const pollMode = () => userDisconnected ? 'disconnected' : lastCode === 'disabled' ? 'stopped'
+    : state.hidden ? 'hidden' : state.auto ? 'scheduled' : 'paused';
+  const emit = () => render({ ...state, poll: pollMode() });
   const unschedule = () => { if (timer !== null) clearTimer(timer); timer = null; };
   const schedule = () => {
     unschedule();
-    if (state.unlocked && state.auto && !state.hidden && !active) {
+    if (!userDisconnected && state.auto && !state.hidden && !active && lastCode !== 'disabled') {
       timer = setTimer(() => { timer = null; void refresh(); }, state.retryMs);
     }
   };
-  function lock(reason = '') {
-    generation += 1; token = ''; unschedule();
-    active?.abort(); active = null; failures = 0;
-    state = { ...state, unlocked: false, loading: false, snapshot: null, lastSuccess: null,
-      error: reason, retryMs: 15000 };
+  function disconnect() {
+    const ownGeneration = ++generation; userDisconnected = true; unschedule();
+    active = null; failures = 0; lastCode = '';
+    state = { ...state, connected: false, loading: false, snapshot: null, lastSuccess: null,
+      error: '', retryMs: 15000, invalidation: null };
     emit();
+    void Promise.resolve(session.disconnect()).then((result) => {
+      if (generation !== ownGeneration || !userDisconnected) return;
+      state = { ...state, invalidation: result ?? state.invalidation };
+      emit();
+    }, () => {
+      if (generation !== ownGeneration || !userDisconnected) return;
+      state = { ...state, invalidation: 'unknown' }; emit();
+    });
   }
-  async function refresh() {
-    if (!token || active) return;
+  async function run(kind) {
+    if (userDisconnected || active) return;
     unschedule();
     const ownGeneration = generation;
-    const request = new AbortController(); active = request;
-    state = { ...state, loading: true, error: '' }; emit();
+    active = kind;
+    state = { ...state, connected: true, loading: true, error: '', invalidation: null }; emit();
     try {
-      const snapshot = await load(token, { signal: request.signal });
-      if (generation !== ownGeneration || active !== request || request.signal.aborted) return;
-      failures = 0;
-      state = { ...state, snapshot, lastSuccess: now(), retryMs: 15000 };
+      if (kind === 'start') await session.connect();
+      if (generation !== ownGeneration || userDisconnected) return;
+      const snapshot = await session.presence();
+      if (generation !== ownGeneration || userDisconnected || active !== kind) return;
+      failures = 0; lastCode = '';
+      state = { ...state, snapshot, lastSuccess: now(), retryMs: 15000, error: '' };
     } catch (error) {
-      if (generation !== ownGeneration || active !== request || request.signal.aborted) return;
-      if (error?.code === 'unauthorized') { lock('Token rejected. Unlock with a valid hub token.'); return; }
+      if (generation !== ownGeneration || userDisconnected || active !== kind) return;
+      lastCode = error?.code ?? 'transport';
+      if (lastCode === 'disconnected') { disconnect(); return; }
       failures += 1;
-      state = { ...state, snapshot: null, error: ERRORS[error?.code] ?? ERRORS.transport,
-        retryMs: failures === 1 ? 30000 : 60000 };
+      state = { ...state, snapshot: null, error: ERRORS[lastCode] ?? ERRORS.transport,
+        retryMs: lastCode === 'disabled' ? 15000 : failures === 1 ? 30000 : 60000 };
     } finally {
-      if (generation === ownGeneration && active === request) {
+      if (generation === ownGeneration && userDisconnected === false && active === kind) {
         active = null; state = { ...state, loading: false }; emit(); schedule();
       }
     }
   }
+  function refresh() { return run('refresh'); }
+  function connect() { userDisconnected = false; lastCode = ''; return run('start'); }
   emit();
+  void connect();
   return {
-    unlock(value) { lock(); if (!value) return; token = value; state = { ...state, unlocked: true }; void refresh(); },
-    lock, refresh,
+    connect, disconnect, refresh,
     setAuto(value) { state = { ...state, auto: Boolean(value) }; emit(); schedule(); },
     setHidden(value) {
       const returning = state.hidden && !value;
       state = { ...state, hidden: Boolean(value) }; emit(); unschedule();
-      if (returning && state.auto) void refresh(); else schedule();
+      if (returning && state.auto && !userDisconnected && lastCode !== 'disabled') void refresh();
+      else schedule();
     },
   };
 }
@@ -105,7 +127,7 @@ export function mountDashboard(doc, win) {
     if (className) node.className = className;
     return node;
   };
-  let current, page = 0, controller, wasUnlocked = false, hostOptions = null;
+  let current, page = 0, controller, wasConnected = true, hostOptions = null;
   const cards = new Map();
   let displayedSnapshot = null, shortIds = new Map();
   const filterIds = ['search', 'host', 'activity', 'receiving', 'control', 'sort'];
@@ -142,7 +164,7 @@ export function mountDashboard(doc, win) {
     byId('previous').disabled = !snapshot || page === 0;
     byId('next').disabled = !snapshot || (page + 1) * 50 >= matching.length;
     byId('empty').hidden = Boolean(snapshot && matching.length);
-    byId('empty').textContent = !snapshot ? (current.loading ? 'Reading a complete snapshot…' : current.unlocked ? 'Presence unavailable. No records or counts are retained.' : 'Unlock to read runtime presence.')
+    byId('empty').textContent = !snapshot ? (current.loading ? 'Reading a complete snapshot…' : current.connected ? 'Presence unavailable. No records or counts are retained.' : 'Disconnected. This view is cleared.')
       : agents.length === 0 ? 'No runtimes registered in this complete snapshot.' : 'No runtimes match these filters. Summary counts still describe the complete snapshot.';
     const visible = matching.slice(page * 50, (page + 1) * 50);
     const ids = new Set(visible.map((a) => a.agentId));
@@ -159,7 +181,7 @@ export function mountDashboard(doc, win) {
       card.model.textContent = modelText(a);
       card.status.textContent = a.status === 'busy' ? 'Busy' : 'Idle';
       card.receiving.textContent = a.receiving ? 'Receiving' : 'Not receiving';
-      card.control.textContent = a.acceptsControl ? 'Control enabled' : 'Notice only';
+      card.control.textContent = a.acceptsControl ? 'Peer control reported' : 'No peer control reported';
       for (const [key, node] of Object.entries(card.fields)) node.textContent = key === 'updatedAt' ? timestamp(a[key], true) : String(a[key]);
       const position = byId('cards').children[index];
       if (position !== card.root) byId('cards').insertBefore(card.root, position ?? null);
@@ -177,12 +199,18 @@ export function mountDashboard(doc, win) {
       displayedSnapshot = state.snapshot;
       shortIds = displayIds(state.snapshot?.agents ?? []);
     }
-    byId('unlock-panel').hidden = state.unlocked;
-    byId('refresh').disabled = !state.unlocked || state.loading;
-    byId('lock').disabled = !state.unlocked;
+    byId('refresh').disabled = !state.connected || state.loading;
+    byId('disconnect').hidden = !state.connected;
+    byId('disconnect').disabled = !state.connected;
+    byId('reconnect').hidden = state.connected;
+    byId('reconnect').disabled = state.connected;
     byId('auto').checked = state.auto;
-    const pause = state.hidden ? 'Paused while this page is hidden.' : !state.auto ? 'Automatic refresh paused.' : `Next automatic read ${state.retryMs / 1000}s after completion.`;
-    byId('status').textContent = !state.unlocked ? state.error || 'Locked. No presence loaded.'
+    const pause = state.poll === 'stopped' ? 'Automatic refresh is stopped until you Refresh or Reconnect.'
+      : state.poll === 'hidden' ? 'Paused while this page is hidden.'
+      : state.poll === 'paused' ? 'Automatic refresh paused.'
+      : `Next automatic read ${state.retryMs / 1000}s after completion.`;
+    const invalid = state.invalidation === 'unknown' ? ' Server session invalidation is uncertain.' : '';
+    byId('status').textContent = !state.connected ? `Disconnected. This view is cleared. Reconnect is allowed while the network still admits this page; it is not a physical lock.${invalid}`
       : state.loading ? (state.snapshot ? 'Refreshing. Showing a historical snapshot until the complete read succeeds.' : 'Reading presence. Counts unavailable until all pages validate.')
       : state.error ? `${state.error} No current snapshot. ${pause}`
       : `Snapshot read complete, not live. ${pause}`;
@@ -200,25 +228,18 @@ export function mountDashboard(doc, win) {
       byId('host').value = state.snapshot ? selectedHost : '';
       hostOptions = hosts;
     }
-    if (!state.unlocked) {
-      byId('token').value = '';
+    if (!state.connected) {
       for (const id of filterIds) byId(id).value = id === 'sort' ? 'label' : '';
       page = 0;
     }
     renderRows();
-    if (!state.unlocked && wasUnlocked) byId('token').focus();
-    wasUnlocked = state.unlocked;
+    if (!state.connected && wasConnected) byId('reconnect').focus();
+    wasConnected = state.connected;
   }
   controller = createController({ render, hidden: doc.hidden });
-  byId('unlock-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const value = byId('token').value;
-    byId('token').value = '';
-    controller.unlock(value);
-    if (value) byId('lock').focus();
-  });
   byId('refresh').addEventListener('click', () => { void controller.refresh(); });
-  byId('lock').addEventListener('click', () => { controller.lock(); byId('token').focus(); });
+  byId('disconnect').addEventListener('click', () => { controller.disconnect(); });
+  byId('reconnect').addEventListener('click', () => { void controller.connect(); });
   byId('auto').addEventListener('change', () => controller.setAuto(byId('auto').checked));
   byId('theme').addEventListener('change', () => { doc.documentElement.dataset.theme = byId('theme').value; });
   for (const id of filterIds) byId(id).addEventListener(id === 'search' ? 'input' : 'change', () => {
@@ -232,8 +253,8 @@ export function mountDashboard(doc, win) {
   byId('previous').addEventListener('click', () => { page -= 1; renderRows(); });
   byId('next').addEventListener('click', () => { page += 1; renderRows(); });
   doc.addEventListener('visibilitychange', () => controller.setHidden(doc.hidden));
-  win.addEventListener('pagehide', () => { controller.lock(); byId('token').value = ''; byId('token').focus(); });
-  win.addEventListener('pageshow', (event) => { if (event.persisted) { controller.lock(); byId('token').focus(); } });
+  win.addEventListener('pagehide', () => { controller.disconnect(); });
+  win.addEventListener('pageshow', (event) => { if (event.persisted) controller.disconnect(); });
   const network = () => { byId('network').hidden = win.navigator.onLine !== false; };
   win.addEventListener('online', network); win.addEventListener('offline', network); network();
   return controller;

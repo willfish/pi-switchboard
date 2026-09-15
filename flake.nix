@@ -198,6 +198,11 @@
             hubPackage = self.packages.${system}.hub;
             nixosModule = self.nixosModules.default;
           };
+          operator-hardened = import ./nix/operator-hardened.nix {
+            inherit pkgs;
+            hubPackage = self.packages.${system}.hub;
+            nixosModule = self.nixosModules.default;
+          };
         }
         // import ./nix/module-checks.nix {
           inherit

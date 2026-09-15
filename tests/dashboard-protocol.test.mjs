@@ -61,6 +61,21 @@ test('exact sequential snapshot stage rejects mixed pages, duplicates, empty con
   const empty = createStage(); empty.add(page(), 100); assert.deepEqual(empty.finish().agents, []);
 });
 
+test('legacy discovery cannot be redirected by path or header overrides', async () => {
+  let calls = 0;
+  await discover('synthetic-only', {
+    path: '/dashboard/api/v1/presence',
+    headers: { 'X-Switchboard-Session': 'nope', Authorization: 'Bearer hostile' },
+    fetch: async (url, options) => {
+      assert.equal(url, '/v1/agents');
+      assert.deepEqual(options.headers, { Authorization: 'Bearer synthetic-only' });
+      calls += 1;
+      return response(page());
+    },
+  });
+  assert.equal(calls, 1);
+});
+
 test('GET-only fixed same-origin transport stages 5000 records atomically', async () => {
   let calls = 0;
   const result = await discover('synthetic-only', { fetch: async (url, options) => {

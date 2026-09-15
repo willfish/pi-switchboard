@@ -4,7 +4,7 @@ The hub is a volatile relay, not a job queue or remote-execution acknowledgement
 
 ## Trust and identity
 
-All `/v1` routes require `Authorization: Bearer <token>`. `/health` is unauthenticated liveness, not proof that the store can accept work. The unauthenticated `/dashboard/` shell and fixed assets contain no presence or credentials; its data requests use the same bearer-authenticated discovery API. Supplied browser origins must match the request origin for discovery reads; cross-site and same-site Fetch Metadata are refused, while native requests without browser metadata remain supported. No CORS or cookie authentication is provided. Restrict network access independently of the token.
+All `/v1` routes require `Authorization: Bearer <token>`. `/health` is unauthenticated liveness, not proof that the store can accept work. The unauthenticated `/dashboard/` shell and fixed assets contain no presence or credentials. Optional `/dashboard/api/v1` routes provide network-authorized operator sessions and the same bounded discovery projection without accepting the relay bearer as a browser credential. Supplied browser origins must match the request origin for reads; mutations require a matching Origin. Cross-site and same-site Fetch Metadata are refused, while native requests without browser metadata remain supported. No CORS or cookie authentication is provided. Restrict network access independently of the token.
 
 Every token holder can inspect presence and impersonate other peers. Presence exposes host, cwd, session name, label, provider/model and activity. This is for trusted peers, not hostile multi-user isolation.
 
@@ -17,7 +17,10 @@ Use UTF-8 JSON with exact schemas. Reject duplicate/unknown keys, malformed Unic
 | Method | Route | Result |
 |---|---|---|
 | GET | `/health` | `{"ok":true}` |
-| GET, HEAD | `/dashboard/` and fixed assets | Generic read-only viewer shell, no state |
+| GET, HEAD | `/dashboard/` and fixed assets | Generic viewer shell, no state |
+| POST | `/dashboard/api/v1/session` | Network-admitted automatic session, exact empty JSON object |
+| POST | `/dashboard/api/v1/disconnect` | Invalidate this operator session, 204 |
+| GET | `/dashboard/api/v1/presence[?cursor=…]` | Operator-session-authenticated discovery page |
 | PUT | `/v1/agents/:agentId` | Register/update, 204 |
 | DELETE | `/v1/agents/:agentId` | Remove, 204 |
 | GET | `/v1/agents[?cursor=…]` | One bounded discovery page |
@@ -27,6 +30,18 @@ Use UTF-8 JSON with exact schemas. Reject duplicate/unknown keys, malformed Unic
 Registration requires `agentId`, `sessionId`, `host`, `cwd`, `sessionName`, `label`, `model`, `status`, `pid`, `acceptsControl`. Status is `idle` or `busy`. Public records add `updatedAt` and `receiving`; readiness is owned by the hub, not supplied in PUT.
 
 The lease is 15 monotonic seconds. Clients heartbeat every five seconds. `updatedAt` records PUT wall time, but timestamp-only heartbeats do not broadcast presence changes. Expiry, removal and expired re-registration discard the old mailbox/subscription. Listener restart preserves state; store restart loses it and closes streams.
+
+## Operator browser access
+
+Operator access is disabled unless configured for loopback or a verified tailnet boundary. Each request checks socket/destination admission and authority. Destination membership in the configured up interface supplements the independently enforced ingress policy; it does not establish incoming interface or human identity.
+
+Bootstrap and disconnect require POST, a matching supplied Origin, JSON content type, Content-Length and exactly an empty JSON object, within a 256-byte document bound. They accept no query parameters. Bootstrap returns only `{"session":"<64 lowercase hexadecimal characters>"}`. The browser keeps this automatic nonce privately in memory and sends `X-Switchboard-Session` for subsequent operator reads/mutations. It never obtains the relay bearer. Cookies and query parameters do not authenticate, and operator nonces do not authenticate legacy `/v1` APIs.
+
+The nonce is a transferable bearer for operator scope on an admitted route, not named-user identity. It is bound to the canonical request origin, expires after thirty monotonic minutes and is invalidated on disconnect or auth-owner loss. Reads may omit Origin; a supplied one must still match. Browser requests use same-origin mode, omitted ambient credentials, no-store and redirect refusal. Cross-origin requests receive no CORS grant.
+
+Session state is limited to 1,024 entries, 32 per peer address. Bootstrap buckets have capacity ten, refill one credit per six seconds, expire after ten inactive minutes and are limited to 4,096 peers. Owner RPC and whole-HTTP-lifetime admission have separate 128-request global/four-per-session bounds. Caller timeout is not permission to discard queued work or its accounting. HTTP gate-state loss makes admission unavailable until transport recovery closes old connections and recreates the subtree.
+
+The operator subtree follows the core store/listener under transient supervision and does not perform interface discovery during startup. Recoverable operator unavailability does not reset core mail. Arbitrary supervisor/programmer failures are not an absolute-isolation guarantee. Operator presence uses the discovery contract below and never registers a runtime or consumes mail.
 
 ## Discovery
 
