@@ -15,16 +15,21 @@
     <header class="masthead">
       <div><p class="eyebrow">PI SWITCHBOARD</p><h1>Your agents</h1>
         <p class="intro">See what your agents are doing and send them a message.</p></div>
-      <label class="theme">Appearance<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     </header>
-    <section class="connection panel" aria-label="Connection and updates">
-      <div><p id="status" role="status" aria-live="polite">Connecting to your agents…</p>
-        <p id="freshness" class="muted">Not updated yet</p>
+    <section class="connection" aria-label="Connection and updates">
+      <div class="connection-summary"><p id="status" role="status" aria-live="polite">Connecting to your agents…</p>
+        <p class="agent-totals"><span id="registered-count">--</span> agents · <span id="busy-count">--</span> working</p>
         <p id="network" class="muted" hidden>Your browser appears to be offline.</p></div>
       <div class="actions"><button id="refresh" type="button" disabled>Refresh</button>
-        <label class="check"><input id="auto" type="checkbox" checked>Auto refresh</label>
-        <button id="disconnect" type="button">Disconnect and clear</button>
-        <button id="reconnect" type="button" hidden>Reconnect</button></div>
+        <button id="reconnect" type="button" hidden>Reconnect</button>
+        <details class="connection-options"><summary>Settings</summary><div class="settings-content">
+          <p id="freshness" class="muted">Not updated yet</p>
+          <p class="muted"><span id="receiving-count">--</span> ready for messages · <span id="control-count">--</span> allow work requests</p>
+          <label class="check"><input id="auto" type="checkbox" checked>Auto refresh</label>
+          <label>Appearance<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+          <button id="disconnect" type="button">Disconnect and clear</button>
+        </div></details>
+      </div>
     </section>
     <nav class="actions console-nav" aria-label="Console views">
       <button id="view-fleet" type="button" aria-pressed="true" aria-controls="runtimes">Agents</button>
@@ -37,17 +42,14 @@
       <div id="attention-operations" class="actions" aria-label="Requests that need checking"></div>
       <p id="attention-empty" class="muted" hidden></p>
     </section>
-    <section class="metrics" aria-label="Agent totals">
-      <div class="metric"><span id="registered-count">--</span><h2>Agents</h2></div>
-      <div class="metric"><span id="busy-count">--</span><h2>Working</h2></div>
-      <div class="metric"><span id="receiving-count">--</span><h2>Ready for messages</h2></div>
-      <div class="metric"><span id="control-count">--</span><h2>Allows work requests</h2></div>
-    </section>
     <div id="console-content" class="workspace" tabindex="-1">
     <section id="runtimes" class="panel overview" aria-labelledby="runtimes-title" tabindex="-1">
-      <div class="section-heading"><h2 id="runtimes-title">Agents</h2><div class="actions"><p id="matching" class="muted">Totals unavailable</p><button id="clear-filters" type="button">Clear filters</button></div></div>
-      <div class="filters">
-        <label class="search">Search<input id="search" type="search" maxlength="200" placeholder="Name, conversation, computer or model" autocomplete="off"></label>
+      <div class="section-heading"><h2 id="runtimes-title">Agents</h2><p id="matching" class="muted">Totals unavailable</p></div>
+      <div class="agent-toolbar">
+        <label class="search">Find an agent<input id="search" type="search" maxlength="200" placeholder="Search agents" autocomplete="off"></label>
+        <label class="check"><input id="needs-attention" type="checkbox">Needs attention only</label>
+      </div>
+      <details id="more-filters"><summary id="filter-summary">More filters</summary><div class="filters">
         <label>Computer<select id="host"><option value="">All computers</option></select></label>
         <label>Group/sort<select id="sort"><option value="work">Project / task</option><option value="label">Name</option><option value="host">Computer</option><option value="model">Model</option><option value="activity">Activity</option></select></label>
         <label>Activity<select id="activity"><option value="">Any activity</option><option value="busy">Working</option><option value="idle">Not working</option></select></label>
@@ -59,16 +61,20 @@
         <label>Owner or team<select id="owner-filter"><option value="">All owners</option></select></label>
         <label>Available actions<select id="capability-filter"><option value="">Any action</option></select></label>
         <label class="check"><input id="watched" type="checkbox">Watchlist only</label>
-      </div>
+      </div></details>
+      <div class="filter-feedback"><span id="active-filters" class="muted"></span><button id="clear-filters" type="button" hidden>Clear filters</button></div>
       <p id="empty" class="empty">Loading agents…</p>
       <div id="cards" class="cards"></div>
       <nav class="pagination" aria-label="Agent pages"><button id="previous" type="button" disabled>Previous</button><span id="page">Page unavailable</span><button id="next" type="button" disabled>Next</button></nav>
     </section>
     <section id="communications" class="panel" aria-labelledby="communications-title" hidden>
       <h2 id="communications-title">Messages</h2>
-      <p class="muted">History lasts up to 24 hours and may be cleared sooner if it fills up or the server restarts. Message text is saved only with permission.</p>
       <p id="communications-status" role="status" aria-live="polite">Open Messages to see the history.</p>
-      <details><summary>Search history</summary><div class="filters">
+      <details><summary>Search and history options</summary>
+        <p class="muted">History lasts up to 24 hours and may be cleared sooner if it fills up or the server restarts. Message text is saved only with permission.</p>
+        <label>View<select id="communications-category"><option value="communications">Messages</option><option value="activity">Work activity</option><option value="diagnostics">Connection problems</option><option value="all">All activity</option></select></label>
+        <button id="communications-reset" type="button">Show history from the start</button>
+        <div class="filters">
         <label>Search text (match capitals)<input id="communications-query" type="search" maxlength="200"></label>
         <label>Agent ID<input id="communications-participant" maxlength="36"></label>
         <label>Task ID<input id="communications-work" maxlength="36"></label>
@@ -79,11 +85,9 @@
         <button id="communications-query-submit" type="button">Search history</button>
       </div></details>
       <div class="actions">
-        <button id="communications-reset" type="button">Show history</button>
         <button id="communications-more" type="button">Show more</button>
         <button id="communications-updates" type="button" hidden>Show available live updates</button>
         <label class="check"><input id="communications-follow" type="checkbox">Show updates as they arrive</label>
-        <label>View<select id="communications-category"><option value="communications">Messages</option><option value="activity">Work activity</option><option value="diagnostics">Connection problems</option><option value="all">All activity</option></select></label>
         <label>Filter this page<input id="communications-search" type="search" maxlength="200" autocomplete="off"></label>
       </div>
       <p id="communications-count" class="muted">No history loaded</p>
@@ -91,7 +95,7 @@
     </section>
     <aside id="inspector" class="panel" aria-labelledby="inspector-title" hidden>
       <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Agent details</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous agent</button><button id="inspector-close" type="button">Close details</button></div></div>
-      <p id="inspector-target" class="identity peer"></p>
+      <details class="technical-details"><summary>Technical details</summary><p id="inspector-target" class="identity peer"></p></details>
       <p id="inspector-status" role="status" aria-live="polite"></p>
       <nav class="actions" aria-label="Agent details">
         <button id="inspector-overview" type="button" aria-pressed="true">Overview</button>
@@ -107,13 +111,14 @@
       </section>
       <section id="operator-composer" aria-label="Send a request">
         <h3>Send a request</h3>
-        <label>Action<select id="operation-kind"><option value="notice">Send a message</option><option value="work">Ask agent to work</option><option value="guidance">Guide current work</option><option value="label">Rename agent</option><option value="interrupt">Stop current work</option></select></label>
         <p id="operation-help" class="muted"></p>
-        <label>Message, name or reason for stopping<textarea id="operation-text" rows="4" maxlength="16384"></textarea></label>
-        <p id="operation-target" class="muted"></p>
+        <label><span id="operation-text-label">Message</span><textarea id="operation-text" rows="4" maxlength="16384"></textarea></label>
+        <details class="technical-details"><summary>Request details</summary><p id="operation-target" class="muted"></p></details>
         <div class="actions"><button id="operation-confirm-target" type="button" hidden>Use this agent's updated details</button><button id="operation-send" type="button" disabled>Send a message</button><button id="operation-clear" type="button">Clear draft</button><button id="operation-new-intent" type="button" hidden>I've checked what happened. Let me send another request.</button></div>
         <p id="operation-status" role="status" aria-live="polite"></p>
       </section>
+      <details id="more-actions"><summary>More actions</summary>
+        <label>Action<select id="operation-kind"><option value="notice">Send a message</option><option value="work">Ask agent to work</option><option value="guidance">Guide current work</option><option value="label">Rename agent</option><option value="interrupt">Stop current work</option></select></label>
       <details id="work-assignment"><summary>Assign a task</summary>
         <p id="assignment-status" class="muted"></p>
         <div class="filters">
@@ -128,6 +133,7 @@
           <label>Related task ID<input id="assign-delegatedWorkId" maxlength="36"></label>
         </div>
         <div class="actions"><button id="assignment-load" type="button">Reload task details</button><button id="assignment-new" type="button">New task</button><button id="assignment-send" type="button" disabled>Save task</button></div>
+      </details>
       </details>
       <section aria-label="What happened"><div class="section-heading"><h3>What happened</h3><button id="operation-list-refresh" type="button">Refresh activity</button></div><div id="operation-list"></div></section>
       <div class="actions"><button id="inspector-refresh" type="button">Refresh task details</button>

@@ -249,26 +249,31 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
       const metadata = doc.createElement('details');
       metadata.append(node('summary', "Technical details"), node('p', `${a.host} · Process ID ${a.pid}`),
         node('p', a.cwd), node('p', a.sessionName),
-        node('p', a.model ? `${a.model.provider} / ${a.model.id}` : 'Model not reported'));
+        node('p', a.model ? `${a.model.provider} / ${a.model.id}` : 'Model not reported'),
+        node('p', a.receiving ? 'Ready for messages' : 'Not ready for messages'),
+        node('p', a.acceptsControl ? 'Allows peer work requests' : 'Peer work requests not allowed'));
       if (state.workView) {
         const work = state.workView.work;
         body.append(node('h3', work.objective ?? "No task shared yet"),
           node('p', `Agent's status: ${plainLabel(work.phase) ?? "Not provided"}`));
-        if (work.blocker) body.append(node('p', `${work.blocker.kind === 'decision' ? "Needs your decision" : "Needs help"}: ${work.blocker.reason}`));
-        const fields = doc.createElement('dl');
-        for (const [key, label] of Object.entries({ workId: "Task ID", currentStep: 'Current step', nextStep: 'Next step',
-          owner: "Owner", project: 'Project', repository: 'Repository', branch: 'Branch', worktree: 'Worktree',
-          parentWorkId: "Parent task", delegatedWorkId: "Related task" }))
-          fields.append(node('dt', label), node('dd', work[key] ?? "Not provided"));
-        body.append(fields);
+        if (work.blocker) {
+          const note = node('p', `${work.blocker.kind === 'decision' ? 'Needs your decision' : 'Needs help'}: ${work.blocker.reason}`);
+          note.className = 'attention-note'; body.append(note);
+        }
+        const fields = doc.createElement('dl'), technical = doc.createElement('dl');
+        for (const [key, label] of Object.entries({ currentStep: 'Current step', nextStep: 'Next step', owner: 'Owner', project: 'Project' }))
+          if (work[key] !== null) fields.append(node('dt', label), node('dd', work[key]));
+        for (const [key, label] of Object.entries({ workId: 'Task ID', repository: 'Repository', branch: 'Branch', worktree: 'Worktree', parentWorkId: 'Parent task', delegatedWorkId: 'Related task' }))
+          technical.append(node('dt', label), node('dd', work[key] ?? 'Not provided'));
+        if (fields.children.length) body.append(fields);
+        metadata.append(technical);
         for (const [id, label] of [[work.parentWorkId, "Show parent task"], [work.delegatedWorkId, "Show related task"]]) if (id) {
           const link = node('button', label); link.type = 'button';
           link.addEventListener('click', () => { select(false); inspector.clear(); focusWork(id); }); body.append(link);
         }
-        body.append(node('h3', "Supporting details"));
-        if (!work.evidence.length) body.append(node('p', "No supporting details shared yet. Finished work still needs checking."));
+        if (work.evidence.length) body.append(node('h3', 'Supporting details'));
         for (const evidence of work.evidence) body.append(evidenceNode(evidence));
-        body.append(node('p', `Available actions: ${state.workView.binding.capabilities.map(plainLabel).join(', ') || 'None'}`),
+        metadata.append(node('p', `Available actions: ${state.workView.binding.capabilities.map(plainLabel).join(', ') || 'None'}`),
           node('p', state.workView.permissions.history ? "This agent allows message text to be saved temporarily in history." : "This agent hasn't allowed message text to be saved in history."));
       } else body.append(node('p', state.workLoading ? "Loading task details…"
         : state.workError || "No task details shared yet."));

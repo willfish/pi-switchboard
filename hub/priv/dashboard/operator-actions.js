@@ -17,6 +17,14 @@ export function plainLabel(value) {
     'guidance.attempt.v1': 'Receive guidance', 'label.set.v1': 'Rename agent', 'run.interrupt.active.v1': 'Stop work' })[value] ?? value;
 }
 
+export function outcomeTone(state) {
+  if (state === 'rejected') return 'danger';
+  if (['unknown', 'expired'].includes(state)) return 'attention';
+  if (['completed', 'labelled', 'work_assigned', 'settled', 'observed'].includes(state)) return 'complete';
+  if (['queued', 'accepted', 'assembling', 'attempted', 'abort_requested'].includes(state)) return 'working';
+  return 'neutral';
+}
+
 export const ACTION_CAPS = Object.freeze({ notice: 'notice.receive.v1', work: 'work.enqueue.v1', guidance: 'guidance.attempt.v1',
   label: 'label.set.v1', interrupt: 'run.interrupt.active.v1', sessionRead: 'session.current.read.v1', workAssign: 'work.assign.v1' });
 export const ACTION_PERMISSIONS = Object.freeze({ notice: 'notice', work: 'work', guidance: 'guidance', label: 'label', interrupt: 'interrupt', sessionRead: 'sessionRead', workAssign: 'workAssign' });

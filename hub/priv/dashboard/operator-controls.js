@@ -1,4 +1,4 @@
-import { canAct, makeOperation, newOperationId, plainLabel } from './operator-actions.js';
+import { canAct, makeOperation, newOperationId, plainLabel, outcomeTone } from './operator-actions.js';
 import { isWorkSnapshot } from './operator-work.js';
 
 const labels = { notice: "Send a message", work: "Ask agent to work", guidance: "Guide current work", label: "Rename agent", interrupt: "Stop current work" };
@@ -85,7 +85,9 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     el('operation-new-intent').hidden = !unknownGuard.has(selected?.target.agentId);
     el('operation-confirm-target').hidden = !changed; el('operation-confirm-target').disabled = !view || busy;
     const command = kind === 'notice' ? '/bus operator notices on' : kind === 'label' || kind === 'interrupt' ? '/bus operator manage on' : '/bus control on';
-    el('operation-help').textContent = `${explanations[kind]} ${view?.permissions.history ? "This agent allows message text to be saved temporarily in history." : "This agent hasn't allowed message text to be saved in history."}${available ? '' : ` This action isn't available yet. In the agent's terminal, run ${command}. Permission must be given there, not on this page.`}`;
+    el('operation-text-label').textContent = kind === 'label' ? 'New name' : kind === 'interrupt' ? 'Reason for stopping (optional)' : 'Message';
+    el('operation-help').textContent = `${explanations[kind]}${view?.permissions.history ? ' Message text may be saved temporarily in history.' : ''}${available ? '' : ` To allow this action, run ${command} in the agent's terminal.`}`;
+    el('operation-status').dataset.tone = outcomeTone(outcomes.get(lastSubmitted)?.state);
     el('operation-target').textContent = view ? `Agent ${view.binding.agentId} · task ${view.work.workId ?? 'not provided'} · conversation ${view.binding.sessionId}${kind === 'interrupt' ? ` · current work ${view.binding.activeRunId ?? 'none'}` : ''}${changed ? " · DETAILS CHANGED: check the agent and task before sending." : ''}` : "Choose an available agent first.";
     el('operation-status').textContent = message;
     el('session-read').disabled = busy || !selected || selected.contextChanged || selected.availability !== 'present' || !canAct(view, 'sessionRead');
@@ -120,6 +122,7 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
         preview.append(node('summary', "Text you sent from this page"), previewText);
         article.append(title, identity, warning, cancel, preview); row = { root: article, title, warning, cancel, preview, previewText }; outcomeRows.set(item.operationId, row);
       }
+      row.root.dataset.tone = outcomeTone(item.state);
       row.title.textContent = `${plainLabel(item.kind)} · ${states[item.state] ?? plainLabel(item.state)}${item.watchComplete ? " · no later update received" : ''}`;
       row.warning.hidden = !item.unsupportedWithdrawal;
       row.preview.hidden = typeof item.preview !== 'string'; row.previewText.textContent = item.preview ?? '';
@@ -264,6 +267,7 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     } else selected = state;
     el('operator-session-panel').hidden = tab !== 'session';
     el('operator-composer').hidden = !state || tab === 'session' || tab === 'changes';
+    el('more-actions').hidden = el('operator-composer').hidden;
     render(); schedule();
   }
   function disconnect() {

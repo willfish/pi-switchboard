@@ -1,6 +1,6 @@
 import { createOperatorSession } from './operator-session.js';
 import { mountConsole } from './console-view.js';
-import { plainLabel } from './operator-actions.js';
+import { plainLabel, outcomeTone } from './operator-actions.js';
 
 const ERRORS = Object.freeze({ reset: "Agent details changed while loading. Refresh to try again.",
   schema: "We couldn't understand the agent details. Try refreshing.", limit: "There are too many agent details to load at once.",
@@ -104,12 +104,14 @@ export function counts(agents) {
 }
 const modelText = (a) => a.model ? `${a.model.provider} / ${a.model.id}` : "Not provided";
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-export function selectAgents(agents, { search = '', host = '', activity = '', receiving = '', control = '', sort = 'label' } = {}) {
+export function selectAgents(agents, { search = '', host = '', activity = '', receiving = '', control = '', sort = 'label' } = {}, workViews = null) {
   const needle = search.slice(0, 200).toLowerCase();
   const key = (a) => sort === 'model' ? modelText(a) : sort === 'activity' ? a.status : sort === 'host' ? a.host : a.label;
   return agents.filter((a) => (!host || a.host === host) && (!activity || a.status === activity)
     && (!receiving || String(a.receiving) === receiving) && (!control || String(a.acceptsControl) === control)
-    && [a.label, a.sessionName, a.host, modelText(a), a.agentId].some((v) => v.toLowerCase().includes(needle)))
+    && [a.label, a.sessionName, a.host, modelText(a), a.agentId,
+      workViews?.get(a.agentId)?.work.objective ?? '', workViews?.get(a.agentId)?.work.currentStep ?? '',
+      workViews?.get(a.agentId)?.work.project ?? ''].some((v) => v.toLowerCase().includes(needle)))
     .sort((a, b) => compare(key(a).toLowerCase(), key(b).toLowerCase()) || compare(a.host, b.host) || compare(a.agentId, b.agentId));
 }
 export function displayIds(agents) {
@@ -132,6 +134,15 @@ export function timestamp(value, seconds = false) {
   if (value === null || value === undefined) return 'unavailable';
   const date = new Date(seconds ? value * 1000 : value);
   return Number.isNaN(date.valueOf()) ? 'Outside browser date range' : date.toLocaleString();
+}
+
+export function agentState(agent, work) {
+  if (work?.phase === 'failed') return { label: 'Problem reported', tone: 'danger' };
+  if (work?.blocker) return { label: work.blocker.kind === 'decision' ? 'Needs your decision' : 'Needs help', tone: 'attention' };
+  if (agent.status === 'busy') return { label: 'Working', tone: 'working' };
+  if (work?.phase === 'completed') return { label: 'Completed (reported)', tone: 'complete' };
+  if (work?.phase === 'waiting') return { label: 'Waiting', tone: 'neutral' };
+  return { label: 'Not working', tone: 'neutral' };
 }
 
 export function mountDashboard(doc, win) {
@@ -166,6 +177,7 @@ export function mountDashboard(doc, win) {
           row.addEventListener('click', () => { const agent = current?.snapshot?.agents.find(a => a.agentId === op.agentId); if (agent) consoleView.selectRuntime(agent); });
           operationAttention.set(op.operationId, row); byId('attention-operations').append(row);
         }
+        row.dataset.tone = outcomeTone(op.state);
         row.textContent = `${plainLabel(op.kind)} · ${plainLabel(op.state)} · ${op.agentId}`;
       }
     },
@@ -187,27 +199,12 @@ export function mountDashboard(doc, win) {
   const filters = () => Object.fromEntries(filterIds.map((id) => [id, byId(id).value]));
   function makeCard() {
     const root = element('article', undefined, 'card');
-    const title = element('h3', '', 'peer');
-    const identity = element('p', '', 'identity peer');
-    const session = element('p', '', 'identity peer');
-    const model = element('p', '', 'model peer');
-    const badges = element('div', undefined, 'badges');
-    const status = element('span', '', 'badge'), receiving = element('span', '', 'badge'), control = element('span', '', 'badge');
-    badges.append(status, receiving, control);
-    const details = element('details');
-    const summary = element('summary', "Agent details");
-    const list = element('dl');
-    const fields = {};
-    for (const [key, label] of Object.entries({ agentId: "Agent ID", sessionId: "Conversation ID", host: "Computer", cwd: "Folder", pid: "Process ID", updatedAt: "Last seen" })) {
-      const value = element('dd', '', 'peer'); fields[key] = value;
-      list.append(element('dt', label), value);
-    }
-    const work = element('div', undefined, 'work');
-    const objective = element('p', '', 'work-objective peer'), phase = element('p', '', 'identity'), meaningful = element('p', '', 'identity');
-    work.append(title, session, objective, phase, meaningful);
-    const inspect = element('button', "Open details", 'inspect'); inspect.type = 'button';
-    details.append(summary, list); root.append(work, identity, model, badges, details, inspect);
-    const card = { root, title, identity, session, model, status, receiving, control, summary, fields, inspect, objective, phase, meaningful, agent: null };
+    const title = element('h3', '', 'peer'), objective = element('p', '', 'work-objective peer');
+    const work = element('div', undefined, 'work'); work.append(title, objective);
+    const status = element('span', '', 'badge');
+    const inspect = element('button', 'Open', 'inspect'); inspect.type = 'button';
+    root.append(work, status, inspect);
+    const card = { root, title, status, inspect, objective, agent: null };
     inspect.addEventListener('click', () => { if (card.agent) consoleView.selectRuntime(card.agent); });
     return card;
   }
@@ -215,15 +212,22 @@ export function mountDashboard(doc, win) {
     const snapshot = current.snapshot;
     const agents = snapshot?.agents ?? [];
     const selected = filters();
-    const matching = selectAgents(agents, selected).filter(agent => {
+    const matching = selectAgents(agents, selected, workViews).filter(agent => {
       const view = workViews.get(agent.agentId), work = view?.work;
       return (!selected.project || work?.project === selected.project)
         && (!selected['work-filter'] || work?.workId === selected['work-filter'])
         && (!selected['model-filter'] || modelText(agent) === selected['model-filter'])
         && (!selected['owner-filter'] || work?.owner === selected['owner-filter'])
         && (!selected['capability-filter'] || view?.binding.capabilities.includes(selected['capability-filter']))
-        && (!byId('watched').checked || watchlist.has(agent.agentId));
+        && (!byId('watched').checked || watchlist.has(agent.agentId))
+        && (!byId('needs-attention').checked || work?.blocker || work?.phase === 'failed');
     });
+    const advanced = filterIds.filter(id => !['search', 'sort'].includes(id) && selected[id]);
+    if (byId('watched').checked) advanced.push('watched');
+    byId('filter-summary').textContent = advanced.length ? `More filters (${advanced.length} active)` : 'More filters';
+    const active = advanced.length + (selected.search ? 1 : 0) + (byId('needs-attention').checked ? 1 : 0);
+    byId('active-filters').textContent = active ? `${active} filter${active === 1 ? '' : 's'} applied` : '';
+    byId('clear-filters').hidden = active === 0;
     if (selected.sort === 'work') matching.sort((a, b) => {
       const key = agent => { const work = workViews.get(agent.agentId)?.work;
         return work?.workId ? `${work.project ?? ''}\u0000${work.workId}` : '\uffff'; };
@@ -248,23 +252,16 @@ export function mountDashboard(doc, win) {
       card.agent = a;
       card.inspect.setAttribute('aria-label', `Open details agent ${shortIds.get(a.agentId)}`);
       card.title.textContent = a.label;
-      card.summary.setAttribute('aria-label', `Agent details for ${shortIds.get(a.agentId)}`);
-      card.identity.textContent = `${a.host} · ${shortIds.get(a.agentId)}`;
-      card.session.textContent = a.sessionName;
       const reported = workViews.get(a.agentId)?.work;
       card.objective.textContent = reported?.objective ?? "No task shared yet";
-      card.phase.textContent = reported ? `${reported.project ?? "No project shared"} · ${plainLabel(reported.phase) ?? "status not shared"}${reported.currentStep ? ` · ${reported.currentStep}` : ''}` : "No task details available";
+      const state = agentState(a, reported);
+      card.status.textContent = state.label; card.status.dataset.tone = state.tone; card.root.dataset.tone = state.tone;
       const last = lastEvents.get(a.agentId);
       if (last) {
         const age = BigInt(Math.floor(Date.now() / 1000)) - BigInt(last.observedAt);
         const when = age < 0n ? 'clock difference' : age < 60n ? `${age}s ago` : age < 3600n ? `${age / 60n}m ago` : `${age / 3600n}h ago`;
-        card.meaningful.textContent = `Latest: ${plainLabel(last.kind)} · ${when} · ${plainLabel(last.source)}`;
-      } else card.meaningful.textContent = "No recent activity available.";
-      card.model.textContent = modelText(a);
-      card.status.textContent = a.status === 'busy' ? "Working" : "Not working";
-      card.receiving.textContent = a.receiving ? "Ready for messages" : "Not ready for messages";
-      card.control.textContent = a.acceptsControl ? "Allows work requests" : "Work requests not allowed";
-      for (const [key, node] of Object.entries(card.fields)) node.textContent = key === 'updatedAt' ? timestamp(a[key], true) : String(a[key]);
+        card.status.title = `Latest: ${plainLabel(last.kind)} · ${when} · ${plainLabel(last.source)}`;
+      } else card.status.title = 'No recent activity available.';
       const position = byId('cards').children[index];
       if (position !== card.root) byId('cards').insertBefore(card.root, position ?? null);
     }
@@ -288,7 +285,8 @@ export function mountDashboard(doc, win) {
     }
     byId('attention-status').textContent = !state.connected ? "Disconnected. Task details cleared."
       : state.workLoading ? "Updating tasks. Showing the previous update for now." : state.workError
-        || (state.workSnapshot ? "These updates come from the agents. Completed work still needs checking." : "Loading tasks…");
+        || (state.workSnapshot ? '' : "Loading tasks…");
+    byId('attention-status').dataset.tone = state.workError ? 'attention' : 'neutral';
     const needs = (state.snapshot?.agents ?? []).filter(a => {
       const w = workViews.get(a.agentId)?.work; return w?.blocker || w?.phase === 'failed';
     });
@@ -305,10 +303,11 @@ export function mountDashboard(doc, win) {
         attentionRows.set(agent.agentId, row); byId('attention-list').append(row);
       }
       const work = workViews.get(agent.agentId).work;
+      row.dataset.tone = work.blocker ? 'attention' : 'danger';
       row.textContent = `${agent.label} · ${work.blocker?.kind === 'decision' ? "Needs your decision" : work.blocker ? "Needs help" : "Reported a problem"}: ${work.blocker?.reason ?? work.objective ?? 'Outcome evidence not supplied'}`;
     }
     byId('attention-empty').hidden = !state.workSnapshot || needs.length !== 0;
-    byId('attention-empty').textContent = "No problems reported. Some agents may not have shared an update yet.";
+    byId('attention-empty').textContent = "No help requested. Agents without task updates may still need checking.";
     if (displayedSnapshot !== state.snapshot) {
       displayedSnapshot = state.snapshot;
       shortIds = displayIds(state.snapshot?.agents ?? []);
@@ -327,7 +326,8 @@ export function mountDashboard(doc, win) {
     byId('status').textContent = !state.connected ? `Disconnected and cleared. You can reconnect while you still have access.${invalid}`
       : state.loading ? (state.snapshot ? "Updating. Showing the previous details for now." : "Loading agents…")
       : state.error ? `${state.error} No current details. ${pause}`
-      : `Agent list updated. ${pause}`;
+      : ['paused', 'hidden', 'stopped'].includes(state.poll) ? pause : 'Connected';
+    byId('status').dataset.tone = state.error ? 'danger' : 'neutral';
     byId('freshness').textContent = `Last updated: ${state.lastSuccess === null ? 'none' : timestamp(state.lastSuccess)} · Server update: ${timestamp(state.snapshot?.capturedAt, true)}`;
     const totals = state.snapshot ? counts(state.snapshot.agents) : null;
     for (const key of ['registered', 'busy', 'receiving', 'control']) byId(`${key}-count`).textContent = totals ? String(totals[key]) : '--';
@@ -361,7 +361,7 @@ export function mountDashboard(doc, win) {
       }
     }
     if (!state.connected) {
-      watchlist.clear(); lastEvents.clear(); observedEpoch = null; byId('watched').checked = false;
+      watchlist.clear(); lastEvents.clear(); observedEpoch = null; byId('watched').checked = false; byId('needs-attention').checked = false;
       for (const id of filterIds) byId(id).value = id === 'sort' ? 'label' : '';
       page = 0;
     }
@@ -379,9 +379,10 @@ export function mountDashboard(doc, win) {
     if (id === 'search') byId(id).value = byId(id).value.slice(0, 200);
     page = 0; renderRows();
   });
+  byId('needs-attention').addEventListener('change', () => { page = 0; renderRows(); });
   byId('watched').addEventListener('change', () => { page = 0; renderRows(); });
   byId('clear-filters').addEventListener('click', () => {
-    byId('watched').checked = false;
+    byId('watched').checked = false; byId('needs-attention').checked = false;
     for (const id of filterIds) byId(id).value = id === 'sort' ? 'label' : '';
     page = 0; renderRows(); byId('search').focus();
   });

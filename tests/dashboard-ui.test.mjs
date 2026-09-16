@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createController, counts, selectAgents, displayIds, mountDashboard } from '../hub/priv/dashboard/dashboard.js';
+import { createController, counts, selectAgents, displayIds, mountDashboard, agentState } from '../hub/priv/dashboard/dashboard.js';
 import { DiscoveryError } from '../hub/priv/dashboard/protocol.js';
 
 const id = (n) => `${n.toString(16).padStart(8, '0')}-0000-0000-0000-000000000000`;
@@ -243,6 +243,39 @@ function mockFetch(agents, { status = 200, session = nonce() } = {}) {
   };
 }
 
+test('compact defaults keep filters and management controls folded without removing them', async () => {
+  assert.match(html, /<details id="more-filters">/);
+  assert.match(html, /<details id="more-actions">/);
+  assert.match(html, /<details class="connection-options">/);
+  assert.doesNotMatch(html, /class="metrics"/);
+  const { doc, win, el } = dom(), original = globalThis.fetch;
+  globalThis.fetch = mockFetch([agent(1), agent(2)]);
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle();
+    assert.equal(el('cards').children.length, 2);
+    assert.equal(el('clear-filters').hidden, true);
+    el('host').value = 'synthetic-host'; el('host').fire('change');
+    assert.equal(el('filter-summary').textContent, 'More filters (1 active)');
+    assert.equal(el('clear-filters').hidden, false);
+    el('needs-attention').checked = true; el('needs-attention').fire('change');
+    assert.equal(el('cards').children.length, 0, 'missing task reports are not invented blockers');
+    el('clear-filters').fire('click');
+    assert.equal(el('needs-attention').checked, false);
+    assert.equal(el('cards').children.length, 2);
+  } finally { controller.disconnect(); globalThis.fetch = original; }
+});
+
+test('status colour follows explicit meaning and always has a text label', () => {
+  assert.deepEqual(agentState(agent(1), null), { label: 'Not working', tone: 'neutral' });
+  assert.deepEqual(agentState(agent(1, { status: 'busy' }), null), { label: 'Working', tone: 'working' });
+  assert.deepEqual(agentState(agent(1), { phase: 'failed' }), { label: 'Problem reported', tone: 'danger' });
+  assert.deepEqual(agentState(agent(1), { blocker: { kind: 'decision' } }), { label: 'Needs your decision', tone: 'attention' });
+  assert.deepEqual(agentState(agent(1), { phase: 'completed' }), { label: 'Completed (reported)', tone: 'complete' });
+  const work = new Map([[agent(1).agentId, { work: { objective: 'Repair imports', currentStep: 'Check paths', project: 'Tools' } }]]);
+  assert.equal(selectAgents([agent(1)], { search: 'imports' }, work).length, 1);
+});
+
 test('mount auto-connects, disconnect stays down, reconnect, focus and late work are fenced', async () => {
   const { doc, win, el } = dom();
   const originalFetch = globalThis.fetch;
@@ -256,23 +289,26 @@ test('mount auto-connects, disconnect stays down, reconnect, focus and late work
     assert.equal(el('unlock-panel'), undefined); assert.equal(el('token'), undefined);
     assert.equal(el('reconnect').hidden, true); assert.equal(el('disconnect').hidden, false);
     assert.match(el('cards').textContent, /<img src=x onerror=alert\(1\)>/); assert.equal(descendants(el('cards'), 'IMG').length, 0);
-    assert.match(el('cards').textContent, /Allows work requests|Work requests not allowed/);
+    assert.match(el('cards').textContent, /Not working/);
+    assert.doesNotMatch(el('cards').textContent, /synthetic-host|Conversation ID|Process ID/);
     assert.equal(el('status').textContent.includes(secret), false);
-    const details = descendants(el('cards'), 'DETAILS')[0]; details.open = true;
-    const summary = descendants(details, 'SUMMARY')[0]; summary.focus();
+    const card = el('cards').children[0];
+    const open = descendants(card, 'BUTTON')[0]; open.focus();
     const hostOptions = [...el('host').children], insertions = el('cards').insertions;
-    await controller.refresh(); assert.equal(descendants(el('cards'), 'DETAILS')[0], details); assert.equal(details.open, true); assert.equal(doc.activeElement, summary);
+    await controller.refresh(); assert.equal(el('cards').children[0], card); assert.equal(doc.activeElement, open);
     hostOptions.forEach((option, i) => assert.equal(el('host').children[i], option));
     assert.equal(el('cards').insertions, insertions);
-    el('host').focus(); controller.setAuto(false); controller.setAuto(true);
+    el('host').focus(); controller.setAuto(false);
+    assert.match(el('status').textContent, /paused/);
+    controller.setAuto(true);
     hostOptions.forEach((option, i) => assert.equal(el('host').children[i], option));
     assert.equal(doc.activeElement, el('host'));
     assert.equal(el('cards').insertions, insertions);
-    summary.focus();
+    open.focus();
     agents[0] = { ...agents[0], label: `<img src=x onerror=alert(1)>\u202e000z` };
     agents[1] = { ...agents[1], label: `<img src=x onerror=alert(1)>\u202e000a` };
     await controller.refresh();
-    assert.equal(descendants(el('cards'), 'DETAILS')[1], details); assert.equal(details.open, true); assert.equal(doc.activeElement, summary);
+    assert.equal(el('cards').children[1], card); assert.equal(doc.activeElement, open);
     assert.equal(el('cards').insertions, insertions + 1);
     el('next').fire('click'); assert.equal(el('cards').children.length, 1); assert.equal(el('page').textContent, 'Page 2 of 2');
     el('search').value = 'unmatched'; el('search').fire('input'); assert.equal(el('cards').children.length, 0);
@@ -424,40 +460,41 @@ test('display collisions survive filters/pages; clear resets every field and pag
   try {
     await settle();
     const checkNames = () => {
-      const summaries = descendants(el('cards'), 'SUMMARY');
+      const summaries = descendants(el('cards'), 'BUTTON');
       const names = summaries.map((summary) => summary.getAttribute('aria-label'));
       assert.equal(new Set(names).size, summaries.length);
       for (const summary of summaries) {
-        assert.equal(summary.textContent, 'Agent details');
-        assert.match(summary.getAttribute('aria-label'), /^Agent details for .+/);
+        assert.equal(summary.textContent, 'Open');
+        assert.match(summary.getAttribute('aria-label'), /^Open details agent .+/);
       }
       return names;
     };
-    assert.equal(checkNames()[0], 'Agent details for abcdef00…00001');
-    await controller.refresh(); assert.equal(checkNames()[0], 'Agent details for abcdef00…00001');
-    assert.match(el('cards').children[0].textContent, /abcdef00…00001/);
-    assert.match(el('cards').children[0].textContent, new RegExp(first));
-    el('next').fire('click'); assert.match(el('cards').textContent, /abcdef00…10001/);
-    assert.deepEqual(checkNames(), ['Agent details for abcdef00…10001']);
+    assert.equal(checkNames()[0], 'Open details agent abcdef00…00001');
+    await controller.refresh(); assert.equal(checkNames()[0], 'Open details agent abcdef00…00001');
+    descendants(el('cards'), 'BUTTON')[0].fire('click');
+    assert.match(el('inspector-target').textContent, new RegExp(first));
+    assert.equal(el('cards').textContent.includes(first), false);
+    el('next').fire('click');
+    assert.deepEqual(checkNames(), ['Open details agent abcdef00…10001']);
     el('clear-filters').fire('click'); assert.equal(el('page').textContent, 'Page 1 of 2');
     for (const [field, value] of Object.entries({ search: first, host: 'synthetic-host', sort: 'host', activity: 'idle', receiving: 'false', control: 'false' })) {
       el(field).value = value; el(field).fire(field === 'search' ? 'input' : 'change');
     }
-    assert.equal(el('cards').children.length, 1); assert.match(el('cards').textContent, /abcdef00…00001/);
-    assert.deepEqual(checkNames(), ['Agent details for abcdef00…00001']);
-    await controller.refresh(); assert.deepEqual(checkNames(), ['Agent details for abcdef00…00001']);
-    const details = descendants(el('cards'), 'DETAILS')[0]; details.open = true;
+    assert.equal(el('cards').children.length, 1);
+    assert.deepEqual(checkNames(), ['Open details agent abcdef00…00001']);
+    await controller.refresh(); assert.deepEqual(checkNames(), ['Open details agent abcdef00…00001']);
+    const firstCard = el('cards').children[0];
     const hostOption = el('host').children[1];
     el('clear-filters').fire('click');
     for (const field of ['search', 'host', 'activity', 'receiving', 'control']) assert.equal(el(field).value, '');
     assert.equal(el('sort').value, 'label'); assert.equal(doc.activeElement, el('search'));
     assert.equal(el('cards').children.length, 50); assert.equal(el('registered-count').textContent, '51');
-    assert.equal(el('host').children[1], hostOption); assert.equal(descendants(el('cards'), 'DETAILS')[0], details); assert.equal(details.open, true);
+    assert.equal(el('host').children[1], hostOption); assert.equal(el('cards').children[0], firstCard);
     assert.equal(checkNames().length, 50);
   } finally { controller.disconnect(); globalThis.fetch = originalFetch; }
 });
 
-test('control border colors meet 3:1 against their panels; desktop layout keeps native articles/details', async () => {
+test('controls and status colours retain accessible contrast in both themes', async () => {
   const css = await readFile(new URL('../hub/priv/dashboard/dashboard.css', import.meta.url), 'utf8');
   const expand = (hex) => hex.length === 4 ? '#' + [...hex.slice(1)].map((c) => c + c).join('') : hex;
   const luminance = (hex) => {
@@ -473,8 +510,16 @@ test('control border colors meet 3:1 against their panels; desktop layout keeps 
   assert.deepEqual(checked, new Set(['#ffffff', '#1a2430']));
   assert.match(css, /input, select, button[^}]+var\(--control-line\)/);
   assert.match(css, /@media \(min-width: 1100px\)/);
-  assert.match(css, /@media \(min-width: 1400px\) \{ \.filters \{ grid-template-columns: minmax\(0, 2fr\) repeat\(5, minmax\(0, 1fr\)\)/);
-  assert.match(css, /\.card details \{ grid-column: 1 \/ -1/);
+  for (const tone of ['danger', 'attention', 'working', 'complete']) {
+    let palettes = 0;
+    const pattern = new RegExp(`--${tone}-ink: (#[a-f0-9]{6}); --${tone}-bg: (#[a-f0-9]{6});`, 'g');
+    for (const match of css.matchAll(pattern)) {
+      const [light, dark] = [luminance(match[1]), luminance(match[2])].sort((a, b) => b - a);
+      assert.ok((light + .05) / (dark + .05) >= 4.5, `${tone} text contrast`); palettes++;
+    }
+    assert.ok(palettes >= 2, `${tone} light and dark palettes`);
+  }
+  assert.match(css, /\.card \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto 70px/);
   assert.doesNotMatch(html, /role="(?:table|row|cell)"/);
 });
 
@@ -519,7 +564,7 @@ test('static accessibility and containment hooks have no inline code, storage or
   assert.match(html, /maxlength="200"/);
   assert.match(html, /aria-live="polite"/); assert.match(html, /href="#console-content">Skip to console content/);
   assert.match(html, /id="console-content"[^>]*tabindex="-1"/);
-  assert.match(html, /Allows work requests/);
+  assert.match(html, /allow work requests/);
   assert.match(css, /unicode-bidi: plaintext/); assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /prefers-color-scheme: dark/); assert.match(css, /:focus-visible/); assert.match(css, /max-width: 440px/);
 });
