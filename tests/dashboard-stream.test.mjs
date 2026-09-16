@@ -15,6 +15,16 @@ test('stream parses every byte split and all supported newline conventions', () 
     }
   }
 });
+test('invalidation frames preserve observation sequencing and reject attached content', () => {
+  let updates = 0; const pages = [];
+  const parser = createObservationParser(p => pages.push(p), () => {}, () => updates++);
+  const wire = bytes(`event: observation\ndata: ${JSON.stringify(page)}\n\nevent: update\ndata: {"schemaVersion":1}\n\nevent: observation\ndata: ${JSON.stringify(page)}\n\n`);
+  for (const byte of wire) parser.push(Uint8Array.of(byte));
+  parser.end(); assert.equal(updates, 1); assert.deepEqual(pages, [page, page]);
+  for (const value of [{ schemaVersion: 2 }, { schemaVersion: 1, body: 'no' }, null])
+    assert.throws(() => createObservationParser(() => {}).push(bytes(`event: update\ndata: ${JSON.stringify(value)}\n\n`)), { code: 'schema' });
+});
+
 test('raw cap includes optional LF after a final CR before publishing', () => {
   const exact = bytes(':' + 'x'.repeat(524285) + '\r\r');
   let delivered = 0;

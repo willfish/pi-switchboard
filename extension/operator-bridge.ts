@@ -104,12 +104,13 @@ export function createOperatorBridge(options: {
       }
     } catch { report(d, 'unknown'); }
   }
-  async function poll() {
+  let pendingWake = false;
+  async function poll(readRequests = true) {
     const at = now();
     for (const [id, expires] of seen) if (expires <= at) { seen.delete(id); pendingInputs.delete(id); pendingInterrupts.delete(id); }
     const c = options.current();
     if (stopped || !c.active || !c.binding) return;
-    if (c.binding.capabilities.some(cap => cap !== 'work.report.v1' && cap !== 'activity.report.v1')) {
+    if (readRequests && c.binding.capabilities.some(cap => cap !== 'work.report.v1' && cap !== 'activity.report.v1')) {
       const response = await options.client.operatorRequests!(c.binding.agentId, lifetime.signal);
       if (stopped) return;
       if (response.status === 'ok') for (const descriptor of response.requests) {
@@ -127,12 +128,19 @@ export function createOperatorBridge(options: {
       if (result.status !== 'ok') droppedActivity += dropped + BigInt(events.length);
     }
   }
-  function tick(): Promise<void> {
+  function tick(readRequests = true): Promise<void> {
     if (stopped) return Promise.resolve();
     if (flight) return flight;
-    const own = poll(); flight = own;
-    void own.finally(() => { if (flight === own) flight = null; }).catch(() => {});
+    const own = poll(readRequests); flight = own;
+    void own.finally(() => {
+      if (flight === own) flight = null;
+      if (pendingWake && !stopped) { pendingWake = false; void tick().catch(() => {}); }
+    }).catch(() => {});
     return own;
+  }
+  function wake(): Promise<void> {
+    if (flight) { pendingWake = true; return flight; }
+    return tick();
   }
   function takeNotices(maxBytes = 32768) {
     if (!options.current().permissions.notice) { notices.length = 0; return ''; }
@@ -188,5 +196,5 @@ export function createOperatorBridge(options: {
     pendingInputs.clear(); pendingInterrupts.clear(); noticeBatches.clear(); resultFlights.clear(); seen.clear();
     activityQueue.length = 0; toolContexts.clear();
   }
-  return { tick, takeNotices, message, settled, activity, stop, revoke: () => projection.clear() };
+  return { tick, wake, takeNotices, message, settled, activity, stop, revoke: () => projection.clear() };
 }

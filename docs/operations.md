@@ -36,7 +36,9 @@ For remote clients, choose the intended bind address explicitly. The module neve
 
 Validate both sides: an authenticated real tailnet client must connect, and a separate physical-LAN client must fail even to reach unauthenticated health. First establish that the negative-test peer's network works. VM interface tests do not establish deployment-host isolation.
 
-To rotate credentials, update the private runtime secret, restart the hub, and restart Pi through its credential wrapper. `/reload` resets extension state but does not refresh inherited environment variables. Hub restart loses pending mail and deduplication; Pi reload/restart loses inbox and consent.
+Routine Wi-Fi loss and reconnection update the client's status without warning notifications. Reconnection retains bounded backoff; credential failures and explicit action failures remain visible. Use `/bus` to inspect connection state.
+
+To rotate credentials, update the private runtime secret, restart the hub, and restart Pi through its credential wrapper. `/reload` resets extension state but does not refresh inherited environment variables. Hub restart loses pending mail and deduplication; Pi reload/restart loses the inbox and reapplies configured permission defaults.
 
 ## Browser dashboard
 
@@ -59,7 +61,7 @@ Observation uses independent bounded history/search/stream APIs, never agent reg
 
 Summary counts describe the entire successfully read snapshot, while search and filters narrow the visible rows. One row is one running Pi identity, not a person or saved session. Labels/activity are client reports; receiving means the hub observes a subscription, not confirmed delivery. Details expose full identifiers, cwd and the last registration timestamp for disambiguation. Reported peer-control permission is not a grant of operator management capabilities.
 
-Automatic refresh runs fifteen seconds after the previous read finishes and pauses while hidden. Snapshot captures can be reused for thirty seconds, so distinguish the last successful read from the server's capture time. Errors and changing-page resets discard incomplete data rather than showing partial counts. A valid empty snapshot is different from unavailable data or a filter with no matches. Heavy churn, slow transport or snapshot limits can prevent a complete read; use the displayed error and manual refresh rather than inferring that missing agents are offline.
+The console subscribes to change notifications and coalesces refreshes, with a sixty-second reconciliation fallback. Without push support, refresh runs fifteen seconds after the previous read finishes. Snapshot refresh pauses while hidden. Snapshot captures can be reused for thirty seconds, so distinguish the last successful read from the server's capture time. Errors and changing-page resets discard incomplete data rather than showing partial counts. A valid empty snapshot is different from unavailable data or a filter with no matches. Heavy churn, slow transport or snapshot limits can prevent a complete read; use the displayed error and manual refresh rather than inferring that missing agents are offline.
 
 ## Native Pi client failure recovery
 

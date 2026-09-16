@@ -2,7 +2,7 @@ import { defaultTimers, type FetchLike, type Timers } from "./client.ts";
 import { decodeServerMessage, decodeWireJson, isUuid, MAX_DISCOVERY_BYTES } from "./protocol.ts";
 import { isPresenceData } from "./presence.ts";
 
-export type BusFrame = { event: "message" | "presence_snapshot" | "presence_delta" | "presence_reset"; data: Uint8Array };
+export type BusFrame = { event: "message" | "presence_snapshot" | "presence_delta" | "presence_reset" | "operator_update"; data: Uint8Array };
 export type StreamEnd = { reason: "aborted" | "unauthorized" | "not_found" | "unavailable" | "timeout" | "protocol" | "closed" };
 type Callbacks = { onFrame(frame: BusFrame): void | false; onActivity?(): void };
 
@@ -32,10 +32,13 @@ export function createSseParser(opts: Callbacks) {
     if (text === "") {
       if (hasData) {
         event ||= "message";
-        if (!["message", "presence_snapshot", "presence_delta", "presence_reset"].includes(event)) fail();
+        if (!["message", "presence_snapshot", "presence_delta", "presence_reset", "operator_update"].includes(event)) fail();
         const bytes = data.slice(0, dataBytes - 1);
         if (event === "message") decodeServerMessage(bytes);
-        else if (!isPresenceData(event, decodeWireJson(bytes))) fail();
+        else if (event === 'operator_update') {
+          const value = decodeWireJson(bytes) as Record<string, unknown>;
+          if (!value || Object.keys(value).length !== 1 || value.schemaVersion !== 1) fail();
+        } else if (!isPresenceData(event, decodeWireJson(bytes))) fail();
         invoke(() => opts.onFrame({ event: event as BusFrame["event"], data: bytes }));
         invoke(() => opts.onActivity?.());
       } else if (event) fail();
@@ -139,7 +142,7 @@ export async function subscribeOnce(opts: Callbacks & {
   async function run(): Promise<StreamEnd> {
     try {
       const res = await opts.fetch(`${opts.baseUrl}/v1/events?agentId=${encodeURIComponent(opts.agentId)}`, {
-        method: "GET", headers: { authorization: `Bearer ${opts.token}`, accept: "text/event-stream" },
+        method: "GET", headers: { authorization: `Bearer ${opts.token}`, accept: "text/event-stream", 'X-Switchboard-Updates': '1' },
         signal: controller.signal, redirect: "manual",
       });
       check();

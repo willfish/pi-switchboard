@@ -357,6 +357,7 @@ matches_json_auth(Rec, Auth) ->
 assign_bindings(Bindings, #{bindings := Bindings} = State) ->
     State;
 assign_bindings(Bindings, #{view_revision := Rev} = State) ->
+    bus_operator_updates:publish(browser),
     State#{bindings := Bindings, view_revision := Rev + 1}.
 
 note_epoch(Epoch, #{core_epoch := Epoch} = State) -> State;

@@ -36,6 +36,19 @@ function fixture(kind: OperationKind, body = 'hello') {
   return { bridge, current, descriptor, client, pi, entries, reports, sdkCalls, labels, workReports, time: (n: number) => { mono = n; } };
 }
 
+test('push wakes coalesce during a request and heartbeat-only ticks do not fetch requests', async () => {
+  const f = fixture('notice'); let calls = 0, release!: () => void;
+  f.client.operatorRequests = async () => { calls++; if (calls === 1) await new Promise<void>(resolve => { release = resolve; }); return { status: 'ok', requests: [] }; };
+  try {
+    await f.bridge.tick(false); assert.equal(calls, 0);
+    const first = f.bridge.wake(); await flush();
+    for (let n = 0; n < 100; n++) void f.bridge.wake();
+    assert.equal(calls, 1); release(); await first; await flush();
+    assert.equal(calls, 2);
+    f.bridge.stop(); await f.bridge.wake(); assert.equal(calls, 2);
+  } finally { f.bridge.stop(); }
+});
+
 test('work is attempted once; synchronous matching input reports follow the attempt', async () => {
   const f = fixture('work');
   f.pi.sendUserMessage = ((text: string) => { f.sdkCalls.push(text); f.bridge.message({ role: 'user', content: text, timestamp: 0 }); }) as any;

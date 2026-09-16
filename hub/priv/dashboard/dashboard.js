@@ -16,6 +16,7 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
   setTimer = setTimeout, clearTimer = clearTimeout, render = () => {}, hidden = false } = {}) {
   const session = operator ?? createOperatorSession({ fetch: fetcher });
   let generation = 0, active = null, timer = null, failures = 0, userDisconnected = false, lastCode = '';
+  let push = false, invalidated = false;
   let state = { connected: true, loading: true, auto: true, hidden, snapshot: null,
     lastSuccess: null, error: '', retryMs: 15000, invalidation: null,
     workSnapshot: null, workError: '', workLoading: false };
@@ -26,12 +27,12 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
   const schedule = () => {
     unschedule();
     if (!userDisconnected && state.auto && !state.hidden && !active && lastCode !== 'disabled') {
-      timer = setTimer(() => { timer = null; void refresh(); }, state.retryMs);
+      timer = setTimer(() => { timer = null; void refresh(); }, invalidated ? 250 : push && !failures ? 60000 : state.retryMs);
     }
   };
   function disconnect() {
     const ownGeneration = ++generation; userDisconnected = true; unschedule();
-    active = null; failures = 0; lastCode = '';
+    active = null; failures = 0; lastCode = ''; push = false; invalidated = false;
     state = { ...state, connected: false, loading: false, snapshot: null, lastSuccess: null,
       error: '', retryMs: 15000, invalidation: null, workSnapshot: null, workError: '', workLoading: false };
     emit();
@@ -48,7 +49,7 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
     if (userDisconnected || active) return;
     unschedule();
     const ownGeneration = generation;
-    active = kind;
+    active = kind; invalidated = false;
     state = { ...state, connected: true, loading: true, error: '', invalidation: null }; emit();
     try {
       if (kind === 'start') await session.connect();
@@ -88,6 +89,8 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
   void connect();
   return {
     connect, disconnect, refresh,
+    invalidate() { if (invalidated) return; invalidated = true; push = true; schedule(); },
+    setPush(value) { if (push === value) return; push = value; schedule(); },
     setAuto(value) { state = { ...state, auto: Boolean(value) }; emit(); schedule(); },
     setHidden(value) {
       const returning = state.hidden && !value;
@@ -156,6 +159,8 @@ export function mountDashboard(doc, win) {
   const operator = createOperatorSession(), watchlist = new Set(), operationAttention = new Map();
   const lastEvents = new Map(); let observedEpoch = null, observedAgents = new Map();
   const consoleView = mountConsole(doc, operator, {
+    onUpdate() { controller?.invalidate(); },
+    onPush(value) { controller?.setPush(value); },
     onObserved(events, caughtUp, epoch) {
       if (observedEpoch !== epoch) { observedEpoch = epoch; lastEvents.clear(); }
       for (const event of events) for (const id of new Set([event.agentId, event.payload.from, event.payload.to].filter(Boolean))) {
@@ -272,6 +277,7 @@ export function mountDashboard(doc, win) {
       } else byId('runtimes').focus({ preventScroll: true });
     }
   }
+  let lastWorkSnapshot = null;
   function render(state) {
     current = state;
     observedAgents = new Map((state.snapshot?.agents ?? []).map(agent => [agent.agentId, agent]));
@@ -279,6 +285,10 @@ export function mountDashboard(doc, win) {
     consoleView.setConnected(state.connected);
     consoleView.enableObservation(Boolean(state.connected && state.snapshot));
     consoleView.updateAgents(state.snapshot?.agents ?? [], Boolean(state.snapshot));
+    if (state.workSnapshot !== lastWorkSnapshot) {
+      lastWorkSnapshot = state.workSnapshot;
+      if (lastWorkSnapshot) consoleView.refreshSelected();
+    }
     workViews = new Map((state.workSnapshot?.epoch === state.snapshot?.epoch ? state.workSnapshot?.views ?? [] : []).map(v => [v.binding.agentId, v]));
     for (const agent of state.snapshot?.agents ?? []) {
       if (workViews.get(agent.agentId)?.binding.sessionId !== agent.sessionId) workViews.delete(agent.agentId);

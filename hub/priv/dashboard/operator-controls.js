@@ -94,7 +94,8 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     el('session-earlier').disabled = busy || !nextLeaf || !canAct(view, 'sessionRead');
     el('session-status').textContent = sessionPage
       ? `Saved conversation, not a live terminal. ${sessionPage.omitted} items left out.${sessionPage.truncated ? " Some text was shortened or left out. Earlier summaries aren't expanded." : ''}`
-      : "The agent must allow conversation access. In its terminal, run /bus operator read on. Private reasoning and other files aren't shown.";
+      : canAct(view, 'sessionRead') ? "Conversation access is allowed. Private reasoning and other files aren't shown."
+        : "The agent must allow conversation access. In its terminal, run /bus operator read on. Private reasoning and other files aren't shown.";
     if (displayedPage !== sessionPage) {
       displayedPage = sessionPage;
       el('session-records').replaceChildren(...(sessionPage?.records ?? []).map(record => {
@@ -158,13 +159,14 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     } catch { if (epoch === generation) message = "Couldn't confirm cancellation. We haven't tried again."; }
     if (epoch === generation) render();
   }
+  let push = false, invalidated = false;
   function schedule() {
     resetTimer();
-    if (!hidden && [...outcomes.values()].some(op => owned.has(op.operationId) && pending.has(op.state) && !op.watchComplete)) timer = setTimeout(() => { timer = null; void poll(); }, 1000);
+    if (!hidden && [...outcomes.values()].some(op => owned.has(op.operationId) && pending.has(op.state) && !op.watchComplete)) timer = setTimeout(() => { timer = null; void poll(); }, invalidated ? 250 : push ? 5000 : 1000);
   }
   async function poll() {
     if (polling || hidden) return;
-    polling = true; const epoch = generation;
+    polling = true; invalidated = false; const epoch = generation;
     try {
       for (const op of [...outcomes.values()]) {
         if (epoch !== generation || hidden) return;
@@ -278,5 +280,8 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
   }
   doc.addEventListener('visibilitychange', () => { hidden = doc.hidden; schedule(); });
   render();
-  return { update, disconnect };
+  return { update, disconnect,
+    invalidate() { if (invalidated) return; invalidated = true; schedule(); },
+    setPush(value) { if (push === value) return; push = value; schedule(); },
+  };
 }

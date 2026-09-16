@@ -10,7 +10,7 @@ A live heartbeat preserves registration identity. Deletion/expiry and re-registr
 
 Capabilities are versioned and negotiated against actual hub implementation. Receiver permissions are distinct: notices, work/guidance, session reading, management/work assignment and history enrollment are not implied by network access. Unknown work fields remain null.
 
-The native client re-probes unchanged metadata on a bounded cadence and polls typed requests on its existing heartbeat. It does not add a second always-on connection or change legacy SSE vocabulary.
+The native client re-probes unchanged metadata on its existing heartbeat. Clients may send `X-Switchboard-Updates: 1` when opening `/v1/events`. An enabled operator subtree then emits `operator_update` frames with exactly `{"schemaVersion":1}`, initially and when an operator request is created for that agent. These are invalidations, not mail or permission grants. The client fetches pending typed requests immediately, coalescing wakes during an active read. Heartbeats still renew liveness and flush activity; request polling falls back to every15 seconds after push support is observed, or every heartbeat with older/disabled servers. No second connection is opened. Clients without the header receive only the legacy SSE vocabulary.
 
 ## Observation
 
@@ -31,6 +31,12 @@ Every event declares its source. Work/run/tool state is client-reported. Operato
 Search supports literal text, runtime participant, work/thread, outcome, source/category and time bounds. Continuations bind filters, epoch and frozen high-water. Each read scans at most2048 positions and returns at most128 hits/1MiB. A filter change or lost history invalidates the continuation.
 
 The stream sends `observation` events containing complete journal pages, including an initial empty baseline. `reset` indicates epoch/history/capacity loss and closes the stream. Comments are keepalives, not data or replay IDs. There is no `Last-Event-ID` resume. Bounds cover32 observers, one per session,512KiB complete framed data and16MiB aggregate in-flight data. Session and network admission are periodically revalidated. Actual transport-send completion governs frame release/rearm.
+
+### Live invalidation
+
+With `X-Switchboard-Updates: 1`, the browser observation stream also emits `update` frames with exactly `{"schemaVersion":1}`. Presence, work and operation changes invalidate the browser's views without adding synthetic journal events. The browser coalesces snapshot refreshes over250ms, keeps a60-second reconciliation fallback while push is available, and returns to ordinary retry polling when the stream is lost. Pending action results use pushed invalidations with a5-second fallback. Pausing the message view still preserves its reading position.
+
+The invalidation owner admits at most32 browser watches and5000 native watches, with one native watch per agent. Each watch retains one dirty bit and at most one queued wake, plus a bounded in-flight frame. Producers perform indexed ETS lookups, never synchronous owner calls. Watches monitor their streams and streams monitor the owner; owner loss closes the stream for resynchronization. Invalidation frames contain no message text, credentials or state snapshots. They never authorize automatic mutation replay.
 
 ## Typed operations
 

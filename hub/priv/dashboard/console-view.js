@@ -17,7 +17,7 @@ export function eventTime(value) {
   return new Date(Number(seconds * 1000n)).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 }
 
-export function createCommunications({ operator, render = () => {}, onObserved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function createCommunications({ operator, render = () => {}, onObserved = () => {}, onUpdate = () => {}, onPush = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
   let generation = 0, flight = null, timer = null, selected = false, hidden = false, cursor = 'first';
   let searchFilters = null, searchPage = null, queuedSearch = null, stream = null, streamFailures = 0, observeFleet = false, pendingEvents = [], pendingMeta = null;
   function bounded(events) {
@@ -28,7 +28,7 @@ export function createCommunications({ operator, render = () => {}, onObserved =
   let state = { connected: false, events: [], coverage: null, loading: false, following: false, error: '', hasPage: false, caughtUp: true, searchMode: false, updates: 0 };
   const emit = () => render({ ...state });
   const stop = () => { if (timer !== null) clearTimer(timer); timer = null; };
-  function stopStream() { stream?.abort(); stream = null; }
+  function stopStream() { stream?.abort(); stream = null; onPush(false); }
   function schedule() {
     stop();
     if (hidden || !state.connected || !observeFleet && (!selected || !state.following)) { stopStream(); return; }
@@ -42,7 +42,10 @@ export function createCommunications({ operator, render = () => {}, onObserved =
     const own = new AbortController(); stream = own;
     let caught = false, staged = [];
     state = { ...state, loading: state.following, error: '' }; emit();
-    void operator.observe({ signal: own.signal, onPage(page) {
+    void operator.observe({ signal: own.signal, onUpdate() {
+      if (stream !== own) return;
+      onPush(true); onUpdate();
+    }, onPage(page) {
       if (stream !== own) return;
       cursor = eventCursor(page.epoch, page.toSequence);
       onObserved(page.events, page.caughtUp, page.epoch);
@@ -68,7 +71,7 @@ export function createCommunications({ operator, render = () => {}, onObserved =
         following: !['forbidden', 'disabled'].includes(error?.code), error: explanation, streamError: explanation }
         : { ...state, streamError: explanation };
       emit();
-    }).finally(() => { if (stream === own) { stream = null; schedule(); } });
+    }).finally(() => { if (stream === own) { stream = null; onPush(false); schedule(); } });
   }
   async function read(gen, restart) {
     state = { ...state, loading: true, error: '' }; emit();
@@ -203,7 +206,7 @@ export function createInspector(render = () => {}, loadWork) {
   };
 }
 
-export function mountConsole(doc, operator, { isWatched = () => false, toggleWatch = () => {}, resolveAgent = () => undefined, focusWork = () => {}, onAttention = () => {}, onObserved = () => {} } = {}) {
+export function mountConsole(doc, operator, { isWatched = () => false, toggleWatch = () => {}, resolveAgent = () => undefined, focusWork = () => {}, onAttention = () => {}, onObserved = () => {}, onUpdate = () => {}, onPush = () => {} } = {}) {
   const byId = id => doc.getElementById(id);
   const node = (tag, text) => { const n = doc.createElement(tag); n.textContent = text; return n; };
   function evidenceNode(evidence) {
@@ -339,7 +342,9 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     byId('communications-list').replaceChildren(...items);
     byId('communications-count').textContent = `${records.length} of ${current.events.length} events on this page`;
   }
-  const view = createCommunications({ operator, onObserved, render(state) {
+  const view = createCommunications({ operator, onObserved,
+    onUpdate() { onUpdate(); controls.invalidate(); },
+    onPush(value) { onPush(value); controls.setPush(value); }, render(state) {
     current = state;
     if (!state.connected) {
       search = ''; category = 'communications'; byId('communications-category').value = category;
@@ -420,6 +425,7 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
   });
   return { ...view,
     selectRuntime: showRuntime,
+    refreshSelected() { void inspector.refresh(); },
     updateAgents(agents, available) { inspector.update(agents, available); },
   };
 }

@@ -339,7 +339,8 @@ test('busy and disconnected TUI inbox opening changes human-read only', { timeou
   assert.equal((await pi.events()).filter(e => e.type === 'agent_start').length, 1);
   assert.ok(!JSON.stringify(f.modelProvider.requests[0].messages).includes(notice));
   await f.disconnectHub();
-  await waitFor(() => /connection (down|degraded)/.test(stripVTControlCharacters(pi.terminal())), 'actual relay disconnection visible');
+  await waitFor(() => /bus (down|degraded)/.test(stripVTControlCharacters(pi.terminal())), 'actual relay disconnection in status');
+  assert.doesNotMatch(stripVTControlCharacters(pi.terminal()), /pi-switchboard: connection (down|degraded)/);
   await freshTerminal(pi, () => pi.submit('/bus inbox'), 'read notice');
   await freshTerminal(pi, () => pi.input('\r'), notice);
   assert.ok(stripVTControlCharacters(pi.terminal()).includes('pending_context'));

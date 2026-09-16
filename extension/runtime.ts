@@ -83,6 +83,7 @@ type Run = {
   confirmation?: AbortController; status: string; error?: string;
   announcer?: ReturnType<typeof createAnnouncer>; binding?: OperatorBinding;
   work: WorkSnapshot; sessionGeneration: bigint; permissionRevision: bigint; branchId: string | null; runId: string | null;
+  operatorPush?: boolean; lastOperatorPoll?: number;
   bridge?: ReturnType<typeof createOperatorBridge>; operatorRead: boolean; operatorManage: boolean; operatorNotice: boolean; operatorHistory: boolean;
   operatorConfirmation?: AbortController; operatorConsentGeneration: number;
 };
@@ -102,9 +103,7 @@ export function createRuntime(deps: AgentBusDeps) {
   function status(r: Run, next: string) {
     if (!active(r)) return;
     if (r.status !== next) {
-      const previous = r.status;
       r.status = next;
-      if ((next === "down" || next === "degraded") && previous !== "connecting") notify(r, `connection ${next}`, "warning");
     }
     r.ctx.ui.setStatus("agent-bus", `bus ${r.status} control ${r.control ? "on" : "off"}`);
   }
@@ -191,7 +190,12 @@ export function createRuntime(deps: AgentBusDeps) {
           r.lease = timers.setTimeout(() => { r.lease = undefined; if (online(r)) refreshHealth(r); }, 15000);
           if (!r.stream) openStream(r);
           refreshHealth(r);
-          void r.announcer?.tick().then(() => { if (online(r)) void r.bridge?.tick(); });
+          void r.announcer?.tick().then(() => {
+            if (!online(r)) return;
+            const read = !r.operatorPush || now() - (r.lastOperatorPoll ?? -Infinity) >= 15000;
+            if (read) r.lastOperatorPoll = now();
+            void r.bridge?.tick(read);
+          });
         } else {
           r.error = "presence update failed";
           refreshHealth(r); scheduleRetry(r);
@@ -208,7 +212,7 @@ export function createRuntime(deps: AgentBusDeps) {
   }
   function openStream(r: Run) {
     if (!online(r) || r.stream) return;
-    const stream = new AbortController(); r.stream = stream; r.presence = createPresenceState();
+    const stream = new AbortController(); r.stream = stream; r.operatorPush = false; r.presence = createPresenceState();
     const valid = () => online(r) && r.stream === stream && !stream.signal.aborted;
     void (async () => {
       try {
@@ -217,7 +221,10 @@ export function createRuntime(deps: AgentBusDeps) {
           onActivity: () => { if (valid()) refreshHealth(r); },
           onFrame: (frame: BusFrame) => {
             if (!valid()) return false;
-            if (frame.event === "message") {
+            if (frame.event === 'operator_update') {
+              r.operatorPush = true; r.lastOperatorPoll = now();
+              void r.bridge?.wake();
+            } else if (frame.event === "message") {
               const mail = decodeServerMessage(frame.data, r.id);
               const before = r.inbox;
               const result = receive(before, mail, { monoMs: now(), wallMs: wallNow() }, r.control);
@@ -305,7 +312,12 @@ export function createRuntime(deps: AgentBusDeps) {
           capabilities: deps.pi ? [...bridgeCapabilities] : ['work.report.v1'], work: r.work,
           permissions: permissions(r) }),
         send: (doc, signal) => r.client.announce!(doc, AbortSignal.any([signal, r.abort.signal])),
-        onBinding: binding => { if (online(r)) r.binding = binding ?? undefined; },
+        onBinding: binding => {
+          if (!online(r)) return;
+          const changed = r.binding?.bindingId !== binding?.bindingId;
+          r.binding = binding ?? undefined;
+          if (changed && binding) void r.bridge?.wake();
+        },
       });
       if (deps.pi) r.bridge = createOperatorBridge({ client: r.client, pi: deps.pi, now, wall: wallNow, uuid,
         current: () => ({ binding: r.binding, ctx: r.ctx, permissions: permissions(r),

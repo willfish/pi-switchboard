@@ -5,14 +5,14 @@
 -define(OP, <<"aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa">>).
 -define(OPS, <<"22222222-2222-4222-8222-222222222222">>).
 -export([disabled_keeps_legacy_token/1, loopback_session_and_presence/1,
-         gate_loss_stays_503/1, announce_activity_and_search/1, observation_stream_delivers_and_invalidates/1, observer_capacity_preserves_core/1, slow_observer_does_not_block_core/1]).
+         push_invalidation_streams/1, gate_loss_stays_503/1, announce_activity_and_search/1, observation_stream_delivers_and_invalidates/1, observer_capacity_preserves_core/1, slow_observer_does_not_block_core/1]).
 
 all() -> [{group, disabled}, {group, enabled}, {group, gate_dead}].
 groups() ->
     %% Gate is temporary and does not restart. Killing it must not share a
     %% group with later dashboard session/search/stream cases.
     [{disabled, [], [disabled_keeps_legacy_token]},
-     {enabled, [], [loopback_session_and_presence, announce_activity_and_search, observation_stream_delivers_and_invalidates, observer_capacity_preserves_core, slow_observer_does_not_block_core]},
+     {enabled, [], [loopback_session_and_presence, announce_activity_and_search, push_invalidation_streams, observation_stream_delivers_and_invalidates, observer_capacity_preserves_core, slow_observer_does_not_block_core]},
      {gate_dead, [], [gate_loss_stays_503]}].
 
 init_per_suite(Config) ->
@@ -103,6 +103,30 @@ announce_activity_and_search(Config) ->
     {ok, Page} = bus_protocol:decode_json(Search),
     true = is_list(maps:get(<<"events">>, Page)),
     {400, _} = operator_get(Config, "/dashboard/api/v1/stream?x=1", H).
+
+push_invalidation_streams(Config) ->
+    {204, _} = bus_http_SUITE:put_agent(Config, ?A, false),
+    {200, Sess} = operator_post(Config, "/dashboard/api/v1/session", origin(Config), <<"{}">>),
+    {ok, #{<<"session">> := Hex}} = bus_protocol:decode_json(Sess),
+    Port = proplists:get_value(port, Config),
+    Open = fun(Path, Header) ->
+        {ok, S} = gen_tcp:connect({127,0,0,1}, Port, [binary, {active,false}, {packet,raw}], 2000),
+        ok = gen_tcp:send(S, ["GET ", Path, " HTTP/1.1\r\nHost: localhost:", integer_to_list(Port),
+            "\r\nX-Switchboard-Updates: 1\r\n", Header, "\r\nConnection: close\r\n\r\n"]), S
+    end,
+    Native = Open(["/v1/events?agentId=", ?A], "Authorization: Bearer ct-token"),
+    Browser = Open("/dashboard/api/v1/stream", ["X-Switchboard-Session: ", Hex]),
+    End = fun() -> erlang:monotonic_time(millisecond) + 3000 end,
+    try
+        _ = until_contains(Native, <<>>, <<"event: operator_update">>, End()),
+        _ = until_contains(Browser, <<>>, <<"event: update">>, End()),
+        bus_operator_updates:publish(?A), bus_operator_updates:publish(browser),
+        _ = until_contains(Native, <<>>, <<"event: operator_update">>, End()),
+        _ = until_contains(Browser, <<>>, <<"event: update">>, End()),
+        {204, _} = operator_post(Config, "/dashboard/api/v1/disconnect",
+            [{<<"x-switchboard-session">>, Hex} | origin(Config)], <<"{}">>),
+        ok = until_closed(Browser, erlang:monotonic_time(millisecond) + 7000)
+    after gen_tcp:close(Native), gen_tcp:close(Browser) end.
 
 observation_stream_delivers_and_invalidates(Config) ->
     {200, Sess} = operator_post(Config, "/dashboard/api/v1/session", origin(Config), <<"{}">>),

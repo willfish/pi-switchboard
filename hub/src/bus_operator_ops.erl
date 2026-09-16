@@ -289,6 +289,11 @@ observe(Kind, Source, Public, Body) when is_map(Public), is_binary(Source) ->
             Pay0#{<<"body">> => Bin};
         _ -> Pay0
     end,
+    bus_operator_updates:publish(browser),
+    case Kind of
+        <<"operator_requested">> -> bus_operator_updates:publish(maps:get(<<"agentId">>, Public, null));
+        _ -> ok
+    end,
     bus_operator_journal:offer(#{
         <<"kind">> => Kind,
         <<"source">> => Source,

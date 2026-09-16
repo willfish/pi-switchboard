@@ -34,6 +34,21 @@ async function succeed(h, value = snapshot()) {
   await settle();
 }
 
+test('push invalidations coalesce, retain changes during a read, and fall back after stream loss', async () => {
+  const h = harness(); await succeed(h);
+  for (let n = 0; n < 100; n++) h.controller.invalidate();
+  assert.equal(h.timers.size, 1); assert.equal(h.tick(), 250);
+  for (let n = 0; n < 100; n++) h.controller.invalidate();
+  assert.equal(h.timers.size, 0);
+  h.pending.filter(p => p.kind === 'presence').at(-1).resolve(snapshot()); await settle();
+  assert.equal(h.tick(), 250);
+  h.pending.filter(p => p.kind === 'presence').at(-1).resolve(snapshot()); await settle();
+  assert.equal([...h.timers.values()][0].ms, 60000);
+  h.controller.setPush(false); assert.equal([...h.timers.values()][0].ms, 15000);
+  h.controller.setAuto(false); h.controller.invalidate(); assert.equal(h.timers.size, 0);
+  h.controller.disconnect(); assert.equal(h.timers.size, 0);
+});
+
 test('single flight, historical refresh, failure clearing, backoff, hidden pause and return', async () => {
   const h = harness();
   assert.equal(h.state().snapshot, null); assert.equal(h.state().loading, true); assert.equal(h.state().connected, true);

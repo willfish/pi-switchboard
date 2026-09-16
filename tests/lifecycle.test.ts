@@ -15,6 +15,21 @@ function fixture(extra: Record<string, any> = {}) {
   return { clock, sdk, puts, calls, runtime, notices, ctx };
 }
 
+it('ordinary receive loss and recovery update status without warning notifications', async () => {
+  let end!: (value: { reason: 'closed' }) => void;
+  const f = fixture({ subscribe: (opts: Parameters<typeof subscribeOnce>[0]) => {
+    sync(opts); return new Promise(resolve => { end = resolve; });
+  } });
+  f.runtime.sessionStart({}, f.ctx); await flush();
+  assert.equal(f.runtime.status(), 'connected');
+  end({ reason: 'closed' }); await flush();
+  assert.equal(f.runtime.status(), 'degraded');
+  assert.deepEqual(f.notices, []);
+  await f.clock.advance(15000);
+  assert.deepEqual(f.notices, []);
+  await f.runtime.sessionShutdown();
+});
+
 it("factory binds the exact commands/tools and no network, clocks, UUID, hostname or timers", () => {
   const sdk = host(); const fail = () => { throw Error("factory effect"); };
   createAgentBusExtension({ pi: sdk.pi, env: { PI_AGENT_BUS_TOKEN: "synthetic" }, fetch: fail, uuid: fail, hostname: fail, now: fail, timers: { setTimeout: fail, clearTimeout: fail } });

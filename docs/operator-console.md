@@ -76,7 +76,7 @@ Only user/assistant text, explicitly supported displayed custom content and safe
 
 ## Compatibility and limits
 
-Old clients remain presence-only for unavailable capabilities. Native capability negotiation and immediate polling run alongside the existing heartbeat without a second always-on native connection. Unsupported endpoints are re-probed on a bounded cadence, and authentication failure stops producers rather than becoming successful fallback.
+Old clients remain presence-only for unavailable capabilities. Native capability negotiation and pushed request notifications share the existing connection, with heartbeat polling as a recovery fallback. Unsupported endpoints are re-probed on a bounded cadence, and authentication failure stops producers rather than becoming successful fallback.
 
 Native POST documents stay at32768 bytes. Larger session pages use bounded fragments, never partial browser publication. Operation queues, tombstones, snapshots, observation buffers and client inboxes have separate count/byte limits. Capacity failures are preferable to evicting deduplication state needed to prevent repeated effects.
 

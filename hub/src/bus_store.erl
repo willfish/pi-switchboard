@@ -377,6 +377,7 @@ changed(Id, State, {Mono, Wall}) ->
         undefined -> #{<<"op">> => <<"remove">>, <<"agentId">> => Id};
         Agent -> #{<<"op">> => <<"upsert">>, <<"agent">> => bus_model:public_agent(Agent,maps:is_key(Id,maps:get(receiving,Model)))}
     end,
+    bus_operator_updates:publish(browser),
     D = bus_discovery:record(Change,Mono,Wall,maps:get(discovery,State)),
     maybe_presence(State#{discovery := D},true).
 

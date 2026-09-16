@@ -422,7 +422,7 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     return operationRead(`/dashboard/api/v1/operations?agentId=${agentId}`, bytes => decodeOperations(bytes, agentId));
   }
 
-  async function observe({ signal, onPage }) {
+  async function observe({ signal, onPage, onUpdate = () => {} }) {
     if (userDisconnected) fail('disconnected');
     if (observation) fail('busy');
     const request = new AbortController(); observation = request;
@@ -442,13 +442,13 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
       if (request.signal.aborted || userDisconnected || mutationGeneration !== epoch) fail('cancelled');
       issued = nonce; arm(5000);
       const response = await abortable(fetcher('/dashboard/api/v1/stream', { ...sameOrigin, method: 'GET',
-        headers: { 'X-Switchboard-Session': issued, accept: 'text/event-stream' }, signal: request.signal }), request.signal);
+        headers: { 'X-Switchboard-Session': issued, accept: 'text/event-stream', 'X-Switchboard-Updates': '1' }, signal: request.signal }), request.signal);
       check();
       if (response.status === 401) { nonce = ''; fail('unauthorized'); }
       if (response.status === 403) fail('forbidden');
       if (response.status !== 200 || !response.body || !/^text\/event-stream(?:;|$)/i.test(response.headers.get('content-type') ?? '')) fail('unavailable');
       arm(30000);
-      const parser = createObservationParser(page => { check(); onPage(page); }, () => { check(); arm(30000); });
+      const parser = createObservationParser(page => { check(); onPage(page); }, () => { check(); arm(30000); }, () => { check(); onUpdate(); });
       reader = response.body.getReader();
       for (;;) {
         const chunk = await abortable(reader.read(), request.signal); check();

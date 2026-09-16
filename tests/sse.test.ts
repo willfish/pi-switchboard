@@ -19,6 +19,14 @@ function stream(chunks: Uint8Array[], status = 200, type = "text/event-stream"):
   return { status, headers: { get: () => type }, text: async () => { throw Error("text forbidden"); },
     body: { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: chunks[index++] } : { done: true } }) } };
 }
+it('operator invalidations are exact payload-free frames and do not decode as mail', () => {
+  const frames: BusFrame[] = [];
+  createSseParser({ onFrame: frame => { frames.push(frame); } }).push(encoder.encode(wire('operator_update', { schemaVersion: 1 })));
+  assert.equal(frames[0].event, 'operator_update');
+  for (const value of [{ schemaVersion: 2 }, { schemaVersion: 1, body: 'no' }, null]) {
+    assert.throws(() => createSseParser({ onFrame() {} }).push(encoder.encode(wire('operator_update', value))));
+  }
+});
 const base = { baseUrl: "http://hub", token: "synthetic", agentId: to, onFrame: () => {} };
 it("cold parser handles every fragmentation, BOM, newline convention, multiline data and ignored replay fields", () => {
   for (const newline of ["\n", "\r\n", "\r"]) {
@@ -144,7 +152,7 @@ it("subscribes once with bearer headers, no replay or redirects, validates recip
     let calls = 0;
     const result = await subscribeOnce({ ...base, fetch: async (url, init) => {
       calls++; assert.equal(url, `http://hub/v1/events?agentId=${to}`); assert.equal(init?.redirect, "manual");
-      assert.deepEqual(init?.headers, { authorization: "Bearer synthetic", accept: "text/event-stream" }); return res;
+      assert.deepEqual(init?.headers, { authorization: "Bearer synthetic", accept: "text/event-stream", 'X-Switchboard-Updates': '1' }); return res;
     } });
     assert.deepEqual(result, { reason }); assert.equal(calls, 1);
   }

@@ -16,6 +16,10 @@ init([]) ->
         start => {bus_operator_auth, start_link, []},
         restart => permanent, shutdown => 5000, type => worker,
         modules => [bus_operator_auth]},
+    Updates = #{id => bus_operator_updates,
+        start => {bus_operator_updates, start_link, []},
+        restart => permanent, shutdown => 5000, type => worker,
+        modules => [bus_operator_updates]},
     Journal = #{id => bus_operator_journal,
         start => {bus_operator_journal, start_link, []},
         restart => permanent, shutdown => 5000, type => worker,
@@ -37,4 +41,4 @@ init([]) ->
         restart => temporary, shutdown => 5000, type => worker,
         modules => [bus_operator_http_gate]},
     {ok, {#{strategy => one_for_one, intensity => 3, period => 5},
-          [Auth, Journal, Native, Ops, Activity, Gate]}}.
+          [Auth, Updates, Journal, Native, Ops, Activity, Gate]}}.

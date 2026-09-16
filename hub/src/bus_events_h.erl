@@ -76,12 +76,32 @@ start_stream(Req0, AgentId) ->
             ),
             ok = bus_deadline_stream:handshake(Req1),
             erlang:send_after(10000, self(), keepalive),
-            State = #{agent_id => AgentId, ref => Ref},
+            Watch = case cowboy_req:header(<<"x-switchboard-updates">>, Req0) of
+                <<"1">> -> watch(AgentId);
+                _ -> undefined
+            end,
+            State = #{agent_id => AgentId, ref => Ref, updates => Watch},
             %% subscribe/3 already queued both initial wakes.
             {cowboy_loop, Req1, State, hibernate}
     end.
 
-info(keepalive, Req, State) ->
+watch(Key) ->
+    case bus_operator_updates:subscribe(Key) of
+        {ok, {Pid, _, _} = Handle} -> {Handle, monitor(process, Pid)};
+        _ -> undefined
+    end.
+
+info({operator_update, Ref}, Req, #{updates := {{_, Ref, _} = Handle, _}} = State) ->
+    bus_operator_updates:ack(Handle),
+    bus_deadline_stream:events(#{event => <<"operator_update">>, data => <<"{\"schemaVersion\":1}">>}, Req),
+    {ok, Req, State, hibernate};
+info({'DOWN', Mon, process, _, _}, Req, #{updates := {_, Mon}} = State) ->
+    {stop, Req, State};
+info(keepalive, Req, State0) ->
+    State = case {maps:get(updates, State0, undefined), cowboy_req:header(<<"x-switchboard-updates">>, Req)} of
+        {undefined, <<"1">>} -> State0#{updates => watch(maps:get(agent_id, State0))};
+        _ -> State0
+    end,
     bus_deadline_stream:events(#{comment => <<"keepalive">>}, Req),
     erlang:send_after(10000, self(), keepalive),
     {ok, Req, State, hibernate};
@@ -124,7 +144,11 @@ info({bus, _Old, _}, Req, State) ->
 info(_Info, Req, State) ->
     {ok, Req, State, hibernate}.
 
-terminate(_Reason, _Req, #{agent_id := AgentId, ref := Ref}) ->
+terminate(_Reason, _Req, #{agent_id := AgentId, ref := Ref} = State) ->
+    case maps:get(updates, State, undefined) of
+        {Handle, Mon} -> demonitor(Mon, [flush]), bus_operator_updates:unsubscribe(Handle);
+        _ -> ok
+    end,
     bus_store:unsubscribe(AgentId, Ref),
     ok;
 terminate(_Reason, _Req, _) ->

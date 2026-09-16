@@ -107,7 +107,11 @@ subscribe(Req0, Nonce, Bound) ->
                     Mon = monitor(process, JournalPid),
                     {Peer, _} = cowboy_req:peer(Req0),
                     {Local, _} = cowboy_req:sock(Req0),
-                    State = #{ref => Ref, digest => Digest, nonce => Nonce,
+                    Watch = case cowboy_req:header(<<"x-switchboard-updates">>, Req0) of
+                        <<"1">> -> watch();
+                        _ -> undefined
+                    end,
+                    State = #{updates => Watch, ref => Ref, digest => Digest, nonce => Nonce,
                               origin => Bound, journal => JournalPid,
                               journal_mon => Mon, peer => Peer, local => Local,
                               pulling => false, pending => false},
@@ -115,7 +119,23 @@ subscribe(Req0, Nonce, Bound) ->
             end
     end.
 
-info(keepalive, Req, State) ->
+watch() ->
+    case bus_operator_updates:subscribe(browser) of
+        {ok, {Owner, _, _} = Handle} -> {Handle, monitor(process, Owner)};
+        _ -> undefined
+    end.
+
+info({operator_update, Ref}, Req, #{updates := {{_, Ref, _} = Handle, _}} = State) ->
+    bus_operator_updates:ack(Handle),
+    bus_deadline_stream:events(#{event => <<"update">>, data => <<"{\"schemaVersion\":1}">>}, Req),
+    {ok, Req, State, hibernate};
+info({'DOWN', Mon, process, _, _}, Req, #{updates := {_, Mon}} = State) ->
+    {stop, Req, State};
+info(keepalive, Req, State0) ->
+    State = case {maps:get(updates, State0, undefined), cowboy_req:header(<<"x-switchboard-updates">>, Req)} of
+        {undefined, <<"1">>} -> State0#{updates => watch()};
+        _ -> State0
+    end,
     bus_deadline_stream:events(#{comment => <<"keepalive">>}, Req),
     erlang:send_after(?KEEPALIVE_MS, self(), keepalive),
     {ok, Req, State, hibernate};
@@ -207,7 +227,11 @@ reset(Req, Reason) ->
     Data = bus_protocol:encode_map(#{<<"reason">> => Reason}),
     bus_deadline_stream:events(#{event => <<"reset">>, data => Data}, Req).
 
-terminate(_Reason, _Req, #{ref := Ref, journal := Journal}) ->
+terminate(_Reason, _Req, #{ref := Ref, journal := Journal} = State) ->
+    case maps:get(updates, State, undefined) of
+        {Handle, Mon} -> demonitor(Mon, [flush]), bus_operator_updates:unsubscribe(Handle);
+        _ -> ok
+    end,
     bus_operator_journal:unsubscribe(Journal, Ref),
     ok;
 terminate(_Reason, _Req, _) ->

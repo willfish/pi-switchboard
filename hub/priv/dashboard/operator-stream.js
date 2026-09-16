@@ -3,7 +3,7 @@ import { decodeEventPage } from './operator-events.js';
 
 // Complete raw framing, including comments and optional LF after CR, is charged
 // before a page can be exposed. A CR-delimited final blank line is deferred.
-export function createObservationParser(onPage, onActivity = () => {}) {
+export function createObservationParser(onPage, onActivity = () => {}, onUpdate = () => {}) {
   const buffer = new Uint8Array(524288);
   let used = 0, lineLength = 0, cr = false, pending = false, previous = null;
   const fail = code => { throw new DiscoveryError(code); };
@@ -24,6 +24,11 @@ export function createObservationParser(onPage, onActivity = () => {}) {
     used = 0; lineLength = 0; cr = false; pending = false;
     if (!event && !data.length && comment) { onActivity(); return; }
     const bytes = new TextEncoder().encode(data.join('\n'));
+    if (event === 'update') {
+      const value = decodeExactJson(bytes);
+      if (!value || Object.keys(value).length !== 1 || value.schemaVersion !== 1) fail('schema');
+      onActivity(); onUpdate(); return;
+    }
     if (event === 'reset') {
       const value = decodeExactJson(bytes);
       if (!value || Object.keys(value).length !== 1 || !['epoch_reset', 'history_lost', 'capacity'].includes(value.reason)) fail('schema');
