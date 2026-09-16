@@ -6,7 +6,7 @@ The console combines fleet work reports, communications, current-session inspect
 
 Open `/dashboard/` on an explicitly enabled loopback or tailnet deployment. Access follows the verified network policy, not a named human account. There is no pairing or copied token. The page holds an automatically issued nonce in memory; native clients continue using their separately managed relay credential.
 
-Network access does not enable receiver permissions. Each Pi runtime starts with control and inspection permissions off. Enable only the required scope locally:
+Network access does not enable receiver permissions. Permissions start off unless the receiver's launcher configures the startup defaults below. Enable individual scopes locally:
 
 | Command | Runtime-local permission |
 |---|---|
@@ -16,7 +16,21 @@ Network access does not enable receiver permissions. Each Pi runtime starts with
 | `/bus operator manage on` | Work assignment, label changes and selected-run interruption |
 | `/bus operator history on` | Bounded message previews in volatile operator history |
 
-Enabling requires a local TUI confirmation. Replace `on` with `off` to revoke. Browser controls and model tools cannot grant these permissions. Reload/new runtime resets consent. Revocation cannot undo effects or erase copies already received; history-policy propagation and retained previews are separate from immediate local permission checks.
+Enabling through a command requires a local TUI confirmation. Replace `on` with `off` to revoke for the current runtime. Browser controls and model tools cannot grant these permissions. Reload/new runtime reapplies the launcher's defaults, not the previous runtime's choices. Revocation cannot undo effects or erase copies already received; history-policy propagation and retained previews are separate from immediate local permission checks.
+
+### Unattended access
+
+The receiver owner can set these environment variables before launching Pi to avoid repeated prompts:
+
+```sh
+export PI_AGENT_BUS_OPERATOR_NOTICES=1
+export PI_AGENT_BUS_OPERATOR_READ=1
+export PI_AGENT_BUS_OPERATOR_HISTORY=1
+```
+
+Each variable is independent. Only the exact value `1` enables it; unset, `0`, or other values leave it off. Reading also enrolls the loaded conversation's user-visible content for inspection. History allows bounded message previews to be retained, but does not recover older messages; peer message text requires both participants enrolled.
+
+These grants apply to every permitted network operator, not just one browser or person. Work/guidance and management still start off. Offline and non-interactive sessions remain disabled. After changing launcher settings, restart Pi; `/reload` alone cannot change the environment inherited by an existing process.
 
 Peer-message previews require both current sender and recipient registrations to be enrolled for history. Operator-request previews require the target's history enrollment. History is metadata-only otherwise. Session inspection and history enrollment are distinct. Hidden reasoning, raw tool arguments/results, environment data and arbitrary files are not exported.
 

@@ -294,7 +294,9 @@ export function createRuntime(deps: AgentBusDeps) {
         attempt: 0, lastPut: -Infinity, presence: createPresenceState(), cached: [], inbox: createInboxState(),
         control: false, consentGeneration: 0, status: "connecting", work: restoreWork(ctx),
         sessionGeneration: 1n, permissionRevision: 0n, branchId: branchAnchor(ctx), runId: ctx.isIdle() ? null : uuid(),
-        operatorRead: false, operatorManage: false, operatorNotice: false, operatorHistory: false, operatorConsentGeneration: 0 };
+        operatorRead: env.PI_AGENT_BUS_OPERATOR_READ === '1', operatorManage: false,
+        operatorNotice: env.PI_AGENT_BUS_OPERATOR_NOTICES === '1', operatorHistory: env.PI_AGENT_BUS_OPERATOR_HISTORY === '1',
+        operatorConsentGeneration: 0 };
       current = r;
       r.announcer = createAnnouncer({ now,
         snapshot: () => ({ schemaVersion: 1, agentId: r.id, sessionId: r.sessionId,
