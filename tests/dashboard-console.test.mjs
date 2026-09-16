@@ -4,7 +4,7 @@ import { createCommunications, createInspector, eventTime, historyTime } from '.
 test('event timestamps display safely without uint64 rounding', () => {
   assert.equal(eventTime('0'), '1970-01-01 00:00:00 UTC');
   assert.equal(eventTime(null), 'Unknown');
-  assert.equal(eventTime('18446744073709551615'), 'Outside display range');
+  assert.equal(eventTime('18446744073709551615'), 'Date unavailable');
 });
 test('inspector pins runtime and session, never retargeting by shared saved session', () => {
   let state;

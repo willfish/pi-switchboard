@@ -1,21 +1,21 @@
-import { canAct, makeOperation, newOperationId } from './operator-actions.js';
+import { canAct, makeOperation, newOperationId, plainLabel } from './operator-actions.js';
 import { isWorkSnapshot } from './operator-work.js';
 
-const labels = { notice: 'Send notice', work: 'Ask to work', guidance: 'Send guidance', label: 'Set label', interrupt: 'Interrupt selected run' };
+const labels = { notice: "Send a message", work: "Ask agent to work", guidance: "Guide current work", label: "Rename agent", interrupt: "Stop current work" };
 const explanations = {
-  notice: 'Passive notice. It does not start a run. Receipt, context reservation and matching observation are separate.',
-  work: 'A request that may start or queue work. SDK attempt is not proof of run start or model use.',
-  guidance: 'Best-effort guidance. It cannot guarantee consumption by the selected run or withdraw an individual queued message.',
-  label: 'Applied by the owning client, so heartbeat cannot overwrite a hub-only change.',
-  interrupt: 'Requests cancellation of the selected run. It does not kill the process, undo edits or withdraw queued messages.',
+  notice: "Leave a message for later. This won't start work, and we can't tell whether it has been read.",
+  work: "Ask the agent to do something. It may start now or wait until its current work finishes.",
+  guidance: "Send advice while the agent is working. It may not use it straight away, and you can't take it back.",
+  label: "Change the name shown for this agent.",
+  interrupt: "Ask the agent to stop its current work. Changes already made won't be undone, and messages already sent can't be taken back.",
 };
 const states = {
-  queued: 'Accepted by hub; awaiting receiver', accepted: 'Received by client; effect not confirmed', received: 'Notice received, not a read receipt',
-  attempted: 'SDK effect attempted, not proof of consumption', observed: 'Matching content observed, not proof of model use',
-  context_reserved: 'Reserved for a later context, not proof of inclusion', labelled: 'Label applied by client; presence is separate',
-  work_assigned: 'Work metadata applied by client, not proof of execution',
-  abort_requested: 'Abort requested, not rollback', settled: 'Selected run settled', completed: 'Session projection complete',
-  cancelled: 'Cancelled before completion', expired: 'Expired; do not resend automatically', rejected: 'Rejected', unknown: 'Outcome unknown', assembling: 'Collecting bounded session page',
+  queued: "Waiting for the agent", accepted: "Agent received the request; waiting for an update", received: "Message reached the agent; reading isn't confirmed",
+  attempted: "Passed to the agent; not confirmed in use", observed: "Message appeared in the conversation; use isn't confirmed",
+  context_reserved: "Prepared for a later conversation; not yet confirmed there", labelled: "Agent renamed; the list may take a moment to update",
+  work_assigned: "Task details saved; work hasn't necessarily started",
+  abort_requested: "Asked to stop; existing changes aren't undone", settled: "That work has finished or stopped", completed: "Conversation loaded",
+  cancelled: "Cancelled", expired: "Timed out. Check what happened before sending again.", rejected: 'Rejected', unknown: "Couldn't confirm what happened", assembling: "Loading conversation",
 };
 const pending = new Set(['queued', 'received', 'accepted', 'assembling', 'attempted', 'abort_requested', 'context_reserved']);
 const encoder = new TextEncoder();
@@ -61,7 +61,7 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
   function remember() {
     if (!selected) return;
     const id = key();
-    if (!drafts.has(id) && drafts.size >= 16) { message = 'Draft capacity reached. Clear an existing draft first.'; return; }
+    if (!drafts.has(id) && drafts.size >= 16) { message = "Too many saved drafts. Clear one before starting another."; return; }
     const previous = drafts.get(id);
     drafts.set(id, { text: el('operation-text').value, pin: previous?.pin ?? pin(selected.workView, kind) });
   }
@@ -73,8 +73,8 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     el('assignment-send').disabled = busy || !selected || selected.contextChanged || selected.availability !== 'present'
       || unknownGuard.has(selected.target.agentId) || !canAct(view, 'workAssign') || assignmentChanged || !assignment || !isWorkSnapshot(assignment)
       || encoder.encode(JSON.stringify(assignment)).length > 16384;
-    el('assignment-status').textContent = assignmentChanged ? 'Assignment target changed. Load current assignment before applying.'
-      : canAct(view, 'workAssign') ? 'Typed metadata update only. It does not start a run or prove completion.' : 'Requires local operator management permission: /bus operator manage on.';
+    el('assignment-status').textContent = assignmentChanged ? "The task changed. Reload its details before saving."
+      : canAct(view, 'workAssign') ? "Save task details without starting work." : "The agent must allow task changes first. In its terminal, run /bus operator manage on.";
     const value = draft(), changed = !!value && value.pin !== pin(view, kind);
     const text = el('operation-text').value;
     const validText = kind === 'interrupt' ? encoder.encode(text).length <= 512
@@ -85,14 +85,14 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     el('operation-new-intent').hidden = !unknownGuard.has(selected?.target.agentId);
     el('operation-confirm-target').hidden = !changed; el('operation-confirm-target').disabled = !view || busy;
     const command = kind === 'notice' ? '/bus operator notices on' : kind === 'label' || kind === 'interrupt' ? '/bus operator manage on' : '/bus control on';
-    el('operation-help').textContent = `${explanations[kind]} ${view?.permissions.history ? 'Receiver is enrolled for volatile message previews; submitted text may be retained in operator history.' : 'Receiver is not enrolled for message preview history.'}${available ? '' : ` Receiver permission/capability is unavailable. Local permission command: ${command}. The browser cannot enable it.`}`;
-    el('operation-target').textContent = view ? `Target ${view.binding.agentId} · work ${view.work.workId ?? 'not reported'} · session ${view.binding.sessionId}${kind === 'interrupt' ? ` · run ${view.binding.activeRunId ?? 'none'}` : ''}${changed ? ' · CONTEXT CHANGED: review and confirm before sending.' : ''}` : 'No current negotiated target.';
+    el('operation-help').textContent = `${explanations[kind]} ${view?.permissions.history ? "This agent allows message text to be saved temporarily in history." : "This agent hasn't allowed message text to be saved in history."}${available ? '' : ` This action isn't available yet. In the agent's terminal, run ${command}. Permission must be given there, not on this page.`}`;
+    el('operation-target').textContent = view ? `Agent ${view.binding.agentId} · task ${view.work.workId ?? 'not provided'} · conversation ${view.binding.sessionId}${kind === 'interrupt' ? ` · current work ${view.binding.activeRunId ?? 'none'}` : ''}${changed ? " · DETAILS CHANGED: check the agent and task before sending." : ''}` : "Choose an available agent first.";
     el('operation-status').textContent = message;
     el('session-read').disabled = busy || !selected || selected.contextChanged || selected.availability !== 'present' || !canAct(view, 'sessionRead');
     el('session-earlier').disabled = busy || !nextLeaf || !canAct(view, 'sessionRead');
     el('session-status').textContent = sessionPage
-      ? `Stored conversation projection, not a terminal mirror. ${sessionPage.omitted} omitted items.${sessionPage.truncated ? ' Content was truncated or omitted; compaction is not reconstructed.' : ''}`
-      : 'Read access and explicit content enrollment are required. Enable locally with /bus operator read on. No arbitrary files or hidden reasoning are exported.';
+      ? `Saved conversation, not a live terminal. ${sessionPage.omitted} items left out.${sessionPage.truncated ? " Some text was shortened or left out. Earlier summaries aren't expanded." : ''}`
+      : "The agent must allow conversation access. In its terminal, run /bus operator read on. Private reasoning and other files aren't shown.";
     if (displayedPage !== sessionPage) {
       displayedPage = sessionPage;
       el('session-records').replaceChildren(...(sessionPage?.records ?? []).map(record => {
@@ -113,18 +113,18 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
       let row = outcomeRows.get(item.operationId);
       if (!row) {
         const article = doc.createElement('article'); article.className = 'operation-outcome';
-        const title = node('p', ''), identity = node('small', item.operationId), warning = node('p', 'Already dispatched; cancellation cannot withdraw the SDK effect.');
-        const cancel = node('button', 'Request cancellation'); cancel.type = 'button';
+        const title = node('p', ''), identity = node('small', item.operationId), warning = node('p', "Already passed to the agent. Cancelling can't undo it.");
+        const cancel = node('button', 'Cancel request'); cancel.type = 'button';
         cancel.addEventListener('click', () => { void cancelOperation(item.operationId); });
         const preview = doc.createElement('details'), previewText = node('pre', '');
-        preview.append(node('summary', 'Text submitted from this page (not a receipt)'), previewText);
+        preview.append(node('summary', "Text you sent from this page"), previewText);
         article.append(title, identity, warning, cancel, preview); row = { root: article, title, warning, cancel, preview, previewText }; outcomeRows.set(item.operationId, row);
       }
-      row.title.textContent = `${item.kind} · ${states[item.state] ?? item.state}${item.watchComplete ? ' · no later context report observed within the watch window' : ''}`;
+      row.title.textContent = `${plainLabel(item.kind)} · ${states[item.state] ?? plainLabel(item.state)}${item.watchComplete ? " · no later update received" : ''}`;
       row.warning.hidden = !item.unsupportedWithdrawal;
       row.preview.hidden = typeof item.preview !== 'string'; row.previewText.textContent = item.preview ?? '';
       row.cancel.hidden = !pending.has(item.state) || item.watchComplete || !owned.has(item.operationId);
-      row.cancel.textContent = item.kind === 'sessionRead' ? 'Cancel inspection' : 'Request cancellation';
+      row.cancel.textContent = item.kind === 'sessionRead' ? 'Cancel loading' : 'Cancel request';
       const position = root.children[index]; if (position !== row.root) root.insertBefore(row.root, position ?? null);
     }
     if (hadFocus) {
@@ -151,8 +151,8 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     try {
       const result = await operator.cancelOperation(id);
       if (epoch !== generation) return;
-      retain(result); message = result.unsupportedWithdrawal ? 'Already dispatched; the effect cannot be withdrawn.' : 'Cancellation recorded.';
-    } catch { if (epoch === generation) message = 'Cancellation outcome unknown. It was not resent.'; }
+      retain(result); message = result.unsupportedWithdrawal ? "Already passed to the agent. It can't be taken back." : "Cancellation requested.";
+    } catch { if (epoch === generation) message = "Couldn't confirm cancellation. We haven't tried again."; }
     if (epoch === generation) render();
   }
   function schedule() {
@@ -184,7 +184,7 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
           if (epoch !== generation) continue;
           if (error?.code === 'forbidden') {
             owned.delete(op.operationId);
-            message = 'Original page-session ownership is unavailable; reconciling metadata only.';
+            message = "This page can no longer change that request. Checking its status instead.";
             try {
               const list = await operator.operations(op.agentId);
               if (epoch === generation) { const found = list.find(item => item.operationId === op.operationId); if (found) retain(found); }
@@ -198,30 +198,30 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
   async function submit(action, payload) {
     const target = selected?.workView;
     if (!target || busy || selected.contextChanged || selected.availability !== 'present' || !canAct(target, action)) return;
-    const epoch = generation, expected = pin(target, action); busy = true; message = 'Checking exact current target…'; render();
+    const epoch = generation, expected = pin(target, action); busy = true; message = "Checking the agent and task…"; render();
     let intent;
     try {
       const fresh = await operator.work(target.binding.agentId);
       if (epoch !== generation) return;
-      if (pin(fresh, action) !== expected) { message = 'Target changed. Refresh work report, review the target and confirm again.'; return; }
+      if (pin(fresh, action) !== expected) { message = "The agent or task changed. Refresh the details and check them before sending."; return; }
       intent = makeOperation(fresh, action, payload); owned.add(intent.operationId); lastSubmitted = intent.operationId;
       retain({ ...intent, state: 'queued', page: null, preview: payload.text ?? payload.label });
       if (action === 'sessionRead') sessionOperation = intent.operationId;
-      message = 'Submitting one operation. Acceptance is separate from its effect.'; render();
+      message = "Sending your request. We'll show what the agent reports back."; render();
       const result = await operator.createOperation(intent);
       if (epoch !== generation) return;
       retain(result); message = states[result.state];
-      if (action === 'workAssign') { drafts.delete(assignmentKey()); message = 'Assignment submitted; refresh work report for client acknowledgement.'; }
+      if (action === 'workAssign') { drafts.delete(assignmentKey()); message = "Task update sent. Refresh its details to check it was saved."; }
       else if (action !== 'sessionRead') { drafts.delete(key()); el('operation-text').value = ''; }
     } catch (error) {
       if (epoch !== generation) return;
       if (intent && ['limit', 'schema', 'disconnected'].includes(error?.code)) {
-        outcomes.delete(intent.operationId); owned.delete(intent.operationId); message = 'Operation was not submitted: invalid, oversized or disconnected request.';
+        outcomes.delete(intent.operationId); owned.delete(intent.operationId); message = "Couldn't send this request. Check its contents, length and connection.";
       } else if (intent && ['rejected', 'forbidden', 'unauthorized'].includes(error?.code)) {
-        retain({ ...intent, state: 'rejected', page: null }); message = 'Operation rejected; no automatic retry.';
+        retain({ ...intent, state: 'rejected', page: null }); message = "Request refused. We haven't tried again.";
       } else {
         if (intent) unknownGuard.add(intent.agentId);
-        message = intent ? `Outcome unknown for ${intent.operationId}. Only status reads will be retried, never the operation.` : 'Could not establish a current target. Nothing submitted.';
+        message = intent ? `Couldn't confirm request ${intent.operationId}. We'll check its status without sending it again.` : "Couldn't confirm the agent is available. Nothing was sent.";
       }
     } finally { if (epoch === generation) { busy = false; render(); schedule(); } }
   }
@@ -234,11 +234,11 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     remember(); kind = el('operation-kind').value; el('operation-text').value = draft()?.text ?? ''; message = ''; render();
   });
   el('operation-confirm-target').addEventListener('click', () => {
-    const value = draft(); if (value && selected?.workView) value.pin = pin(selected.workView, kind); message = 'Current target confirmed.'; render();
+    const value = draft(); if (value && selected?.workView) value.pin = pin(selected.workView, kind); message = "Updated agent and task details confirmed."; render();
   });
   el('operation-clear').addEventListener('click', () => { drafts.delete(key()); el('operation-text').value = ''; message = ''; render(); });
   el('operation-new-intent').addEventListener('click', () => {
-    if (selected) unknownGuard.delete(selected.target.agentId); message = 'A new intent is allowed. Prior effects are not undone.'; render();
+    if (selected) unknownGuard.delete(selected.target.agentId); message = "You can send another request. Earlier actions aren't undone."; render();
   });
   el('operation-send').addEventListener('click', () => {
     if (el('operation-send').disabled) return;
@@ -251,7 +251,7 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
   el('operation-list-refresh').addEventListener('click', async () => {
     const id = selected?.target.agentId, epoch = generation; if (!id) return;
     try { const values = await operator.operations(id); if (epoch !== generation) return; for (const value of values) retain(value); render(); schedule(); }
-    catch { if (epoch === generation) { message = 'Shared activity unavailable.'; render(); } }
+    catch { if (epoch === generation) { message = "Couldn't load other requests."; render(); } }
   });
   function update(state, tab) {
     const changed = selected?.target.agentId !== state?.target.agentId || selected?.target.sessionId !== state?.target.sessionId;

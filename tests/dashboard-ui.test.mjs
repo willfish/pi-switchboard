@@ -110,7 +110,7 @@ test('disconnect, reconnect and late results fence without leaking a nonce into 
   h.pending.filter((p) => p.kind === 'connect').at(-1).resolve(); await settle();
   assert.equal(h.state().snapshot, null); assert.equal(h.state().loading, true);
   h.pending.filter((p) => p.kind === 'presence').at(-1).reject(new DiscoveryError('unauthorized')); await settle();
-  assert.equal(h.state().connected, true); assert.equal(h.state().snapshot, null); assert.match(h.state().error, /rejected/);
+  assert.equal(h.state().connected, true); assert.equal(h.state().snapshot, null); assert.match(h.state().error, /can.t access/);
   h.controller.disconnect();
   h.pending.filter((p) => p.kind === 'presence').at(-1)?.reject?.(new DiscoveryError('unauthorized'));
   await settle();
@@ -169,7 +169,7 @@ test('disabled operator access stops polling and does not auto-retry on visibili
   h.pending[0].reject(new DiscoveryError('disabled')); await settle();
   assert.equal(h.state().snapshot, null);
   assert.equal(h.state().poll, 'stopped');
-  assert.match(h.state().error, /disabled/);
+  assert.match(h.state().error, /hasn.t enabled/);
   assert.equal(h.timers.size, 0);
   h.controller.setHidden(true); h.controller.setHidden(false);
   assert.equal(h.pending.filter((p) => p.kind === 'presence').length, 0);
@@ -256,7 +256,7 @@ test('mount auto-connects, disconnect stays down, reconnect, focus and late work
     assert.equal(el('unlock-panel'), undefined); assert.equal(el('token'), undefined);
     assert.equal(el('reconnect').hidden, true); assert.equal(el('disconnect').hidden, false);
     assert.match(el('cards').textContent, /<img src=x onerror=alert\(1\)>/); assert.equal(descendants(el('cards'), 'IMG').length, 0);
-    assert.match(el('cards').textContent, /Peer control reported|No peer control reported/);
+    assert.match(el('cards').textContent, /Allows work requests|Work requests not allowed/);
     assert.equal(el('status').textContent.includes(secret), false);
     const details = descendants(el('cards'), 'DETAILS')[0]; details.open = true;
     const summary = descendants(details, 'SUMMARY')[0]; summary.focus();
@@ -277,7 +277,7 @@ test('mount auto-connects, disconnect stays down, reconnect, focus and late work
     el('next').fire('click'); assert.equal(el('cards').children.length, 1); assert.equal(el('page').textContent, 'Page 2 of 2');
     el('search').value = 'unmatched'; el('search').fire('input'); assert.equal(el('cards').children.length, 0);
     assert.equal(el('registered-count').textContent, '51'); assert.match(el('empty').textContent, /match these filters/);
-    agents = []; await controller.refresh(); assert.equal(el('registered-count').textContent, '0'); assert.match(el('empty').textContent, /No runtimes registered/);
+    agents = []; await controller.refresh(); assert.equal(el('registered-count').textContent, '0'); assert.match(el('empty').textContent, /No agents are connected/);
     el('theme').value = 'dark'; el('theme').fire('change'); assert.equal(doc.documentElement.dataset.theme, 'dark');
     win.navigator.onLine = false; win.fire('offline'); assert.equal(el('network').hidden, false);
     el('disconnect').fire('click'); await settle();
@@ -314,12 +314,12 @@ test('console navigation loads independent communications and disconnect clears 
     assert.equal(el('inspector').hidden, false);
     assert.match(el('inspector-target').textContent, new RegExp(id(1)));
     el('inspector-session').fire('click');
-    assert.match(el('inspector-body').textContent, /no read capability/);
+    assert.match(el('inspector-body').textContent, /doesn.t support viewing/);
     el('view-communications').fire('click'); await settle();
     assert.equal(reads, 1); assert.equal(el('runtimes').hidden, true);
     assert.equal(el('communications').hidden, false);
-    assert.match(el('communications-list').textContent, /Accepted by relay/);
-    assert.match(el('communications-list').textContent, /Content not collected/);
+    assert.match(el('communications-list').textContent, /Message accepted by server/);
+    assert.match(el('communications-list').textContent, /Message text wasn.t saved/);
     el('view-fleet').fire('click'); assert.equal(el('runtimes').hidden, false);
     el('disconnect').fire('click'); await settle();
     assert.equal(el('communications-list').children.length, 0);
@@ -345,9 +345,9 @@ test('inspector shows complete reported work as literal data, including evidence
   try {
     await settle(); descendants(el('cards'), 'BUTTON')[0].fire('click'); await settle(); await settle();
     assert.match(el('inspector-body').textContent, /<script>alert\(1\)<\/script>/);
-    assert.match(el('inspector-body').textContent, /Client-reported phase: waiting/);
+    assert.match(el('inspector-body').textContent, /Agent.s status: Waiting/);
     assert.match(el('inspector-body').textContent, /javascript:alert\(1\)/);
-    assert.match(el('inspector-body').textContent, /Not reported/);
+    assert.match(el('inspector-body').textContent, /Not provided/);
     assert.equal(descendants(el('inspector-body'), 'SCRIPT').length, 0);
     assert.equal(descendants(el('inspector-body'), 'A').length, 0);
     const metadata = descendants(el('inspector-body'), 'DETAILS')[0]; metadata.open = true;
@@ -393,7 +393,7 @@ test('fleet work, attention, permission-gated notice and changed-target confirma
     el('operation-send').fire('click'); await settle(); await settle(); await settle();
     assert.equal(creates.length, 1); assert.equal(creates[0].agentId, id(1));
     assert.equal(creates[0].workId, fixtures.populated.workId); assert.equal(creates[0].kind, 'notice');
-    assert.match(el('operation-list').textContent, /Notice received, not a read receipt/);
+    assert.match(el('operation-list').textContent, /Message reached the agent; reading isn.t confirmed/);
     el('operation-text').value = 'A second draft'; el('operation-text').fire('input'); revision = '2';
     el('inspector-refresh').fire('click'); await settle(); await settle();
     assert.equal(el('operation-send').disabled, true); assert.equal(el('operation-confirm-target').hidden, false);
@@ -428,24 +428,24 @@ test('display collisions survive filters/pages; clear resets every field and pag
       const names = summaries.map((summary) => summary.getAttribute('aria-label'));
       assert.equal(new Set(names).size, summaries.length);
       for (const summary of summaries) {
-        assert.equal(summary.textContent, 'Runtime details');
-        assert.match(summary.getAttribute('aria-label'), /^Runtime details for .+/);
+        assert.equal(summary.textContent, 'Agent details');
+        assert.match(summary.getAttribute('aria-label'), /^Agent details for .+/);
       }
       return names;
     };
-    assert.equal(checkNames()[0], 'Runtime details for abcdef00…00001');
-    await controller.refresh(); assert.equal(checkNames()[0], 'Runtime details for abcdef00…00001');
+    assert.equal(checkNames()[0], 'Agent details for abcdef00…00001');
+    await controller.refresh(); assert.equal(checkNames()[0], 'Agent details for abcdef00…00001');
     assert.match(el('cards').children[0].textContent, /abcdef00…00001/);
     assert.match(el('cards').children[0].textContent, new RegExp(first));
     el('next').fire('click'); assert.match(el('cards').textContent, /abcdef00…10001/);
-    assert.deepEqual(checkNames(), ['Runtime details for abcdef00…10001']);
+    assert.deepEqual(checkNames(), ['Agent details for abcdef00…10001']);
     el('clear-filters').fire('click'); assert.equal(el('page').textContent, 'Page 1 of 2');
     for (const [field, value] of Object.entries({ search: first, host: 'synthetic-host', sort: 'host', activity: 'idle', receiving: 'false', control: 'false' })) {
       el(field).value = value; el(field).fire(field === 'search' ? 'input' : 'change');
     }
     assert.equal(el('cards').children.length, 1); assert.match(el('cards').textContent, /abcdef00…00001/);
-    assert.deepEqual(checkNames(), ['Runtime details for abcdef00…00001']);
-    await controller.refresh(); assert.deepEqual(checkNames(), ['Runtime details for abcdef00…00001']);
+    assert.deepEqual(checkNames(), ['Agent details for abcdef00…00001']);
+    await controller.refresh(); assert.deepEqual(checkNames(), ['Agent details for abcdef00…00001']);
     const details = descendants(el('cards'), 'DETAILS')[0]; details.open = true;
     const hostOption = el('host').children[1];
     el('clear-filters').fire('click');
@@ -500,8 +500,8 @@ test('failed snapshots are cleared; disabled operator API does not ask for a hub
   const blocked = mountDashboard(disabled.doc, disabled.win);
   try {
     await settle();
-    assert.match(disabled.el('status').textContent, /disabled/i);
-    assert.match(disabled.el('status').textContent, /stopped until you Refresh or Reconnect/);
+    assert.match(disabled.el('status').textContent, /hasn.t enabled/i);
+    assert.match(disabled.el('status').textContent, /Automatic updates stopped/);
     assert.doesNotMatch(disabled.el('status').textContent, /Next automatic read/);
     assert.equal(disabled.el('cards').children.length, 0);
     assert.doesNotMatch(disabled.el('status').textContent, /Unlock|bearer|password|token field/i);
@@ -519,7 +519,7 @@ test('static accessibility and containment hooks have no inline code, storage or
   assert.match(html, /maxlength="200"/);
   assert.match(html, /aria-live="polite"/); assert.match(html, /href="#console-content">Skip to console content/);
   assert.match(html, /id="console-content"[^>]*tabindex="-1"/);
-  assert.match(html, /Peer control reported/);
+  assert.match(html, /Allows work requests/);
   assert.match(css, /unicode-bidi: plaintext/); assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /prefers-color-scheme: dark/); assert.match(css, /:focus-visible/); assert.match(css, /max-width: 440px/);
 });

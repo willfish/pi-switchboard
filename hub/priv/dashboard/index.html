@@ -13,131 +13,131 @@
   <a class="skip" href="#console-content">Skip to console content</a>
   <main>
     <header class="masthead">
-      <div><p class="eyebrow">PI SWITCHBOARD / OPERATOR VIEW</p><h1>Fleet console</h1>
-        <p class="intro">Reported work, communications and runtime context.</p></div>
+      <div><p class="eyebrow">PI SWITCHBOARD</p><h1>Your agents</h1>
+        <p class="intro">See what your agents are doing and send them a message.</p></div>
       <label class="theme">Appearance<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     </header>
-    <section class="connection panel" aria-label="Connection and freshness">
-      <div><p id="status" role="status" aria-live="polite">Connecting. No presence loaded.</p>
-        <p id="freshness" class="muted">Last successful read: none · Server capture: unavailable</p>
-        <p id="network" class="muted" hidden>Browser reports offline. This does not establish hub availability.</p></div>
+    <section class="connection panel" aria-label="Connection and updates">
+      <div><p id="status" role="status" aria-live="polite">Connecting to your agents…</p>
+        <p id="freshness" class="muted">Not updated yet</p>
+        <p id="network" class="muted" hidden>Your browser appears to be offline.</p></div>
       <div class="actions"><button id="refresh" type="button" disabled>Refresh</button>
         <label class="check"><input id="auto" type="checkbox" checked>Auto refresh</label>
         <button id="disconnect" type="button">Disconnect and clear</button>
         <button id="reconnect" type="button" hidden>Reconnect</button></div>
     </section>
     <nav class="actions console-nav" aria-label="Console views">
-      <button id="view-fleet" type="button" aria-pressed="true" aria-controls="runtimes">Fleet</button>
-      <button id="view-communications" type="button" aria-pressed="false" aria-controls="communications">Communications</button>
+      <button id="view-fleet" type="button" aria-pressed="true" aria-controls="runtimes">Agents</button>
+      <button id="view-communications" type="button" aria-pressed="false" aria-controls="communications">Messages</button>
     </nav>
     <section id="attention" class="panel" aria-labelledby="attention-title">
       <h2 id="attention-title" tabindex="-1">Needs attention</h2>
-      <p id="attention-status" class="muted" role="status" aria-live="polite">Work reports have not been read.</p>
+      <p id="attention-status" class="muted" role="status" aria-live="polite">Loading tasks…</p>
       <div id="attention-list" class="actions"></div>
-      <div id="attention-operations" class="actions" aria-label="Uncertain or rejected operations observed by this page"></div>
+      <div id="attention-operations" class="actions" aria-label="Requests that need checking"></div>
       <p id="attention-empty" class="muted" hidden></p>
     </section>
-    <section class="metrics" aria-label="Complete snapshot counts">
-      <div class="metric"><span id="registered-count">--</span><h2>Registered runtimes</h2></div>
-      <div class="metric"><span id="busy-count">--</span><h2>Busy</h2></div>
-      <div class="metric"><span id="receiving-count">--</span><h2>Receiving</h2></div>
-      <div class="metric"><span id="control-count">--</span><h2>Peer control reported</h2></div>
+    <section class="metrics" aria-label="Agent totals">
+      <div class="metric"><span id="registered-count">--</span><h2>Agents</h2></div>
+      <div class="metric"><span id="busy-count">--</span><h2>Working</h2></div>
+      <div class="metric"><span id="receiving-count">--</span><h2>Ready for messages</h2></div>
+      <div class="metric"><span id="control-count">--</span><h2>Allows work requests</h2></div>
     </section>
     <div id="console-content" class="workspace" tabindex="-1">
     <section id="runtimes" class="panel overview" aria-labelledby="runtimes-title" tabindex="-1">
-      <div class="section-heading"><h2 id="runtimes-title">Runtime overview</h2><div class="actions"><p id="matching" class="muted">Counts unavailable</p><button id="clear-filters" type="button">Clear filters</button></div></div>
+      <div class="section-heading"><h2 id="runtimes-title">Agents</h2><div class="actions"><p id="matching" class="muted">Totals unavailable</p><button id="clear-filters" type="button">Clear filters</button></div></div>
       <div class="filters">
-        <label class="search">Search<input id="search" type="search" maxlength="200" placeholder="Label, session, host, model or ID" autocomplete="off"></label>
-        <label>Host<select id="host"><option value="">All hosts</option></select></label>
-        <label>Group/sort<select id="sort"><option value="work">Project / work</option><option value="label">Label</option><option value="host">Host</option><option value="model">Model</option><option value="activity">Activity</option></select></label>
-        <label>Activity<select id="activity"><option value="">Any activity</option><option value="busy">Busy</option><option value="idle">Idle</option></select></label>
-        <label>Receiving<select id="receiving"><option value="">Any connection</option><option value="true">Receiving</option><option value="false">Not receiving</option></select></label>
-        <label>Peer control<select id="control"><option value="">Any report</option><option value="true">Reported</option><option value="false">Not reported</option></select></label>
+        <label class="search">Search<input id="search" type="search" maxlength="200" placeholder="Name, conversation, computer or model" autocomplete="off"></label>
+        <label>Computer<select id="host"><option value="">All computers</option></select></label>
+        <label>Group/sort<select id="sort"><option value="work">Project / task</option><option value="label">Name</option><option value="host">Computer</option><option value="model">Model</option><option value="activity">Activity</option></select></label>
+        <label>Activity<select id="activity"><option value="">Any activity</option><option value="busy">Working</option><option value="idle">Not working</option></select></label>
+        <label>Ready for messages<select id="receiving"><option value="">Any connection</option><option value="true">Ready for messages</option><option value="false">Not ready for messages</option></select></label>
+        <label>Work requests<select id="control"><option value="">Any report</option><option value="true">Allowed</option><option value="false">Not allowed</option></select></label>
         <label>Project<select id="project"><option value="">All projects</option></select></label>
-        <label>Work item<select id="work-filter"><option value="">All work items</option></select></label>
+        <label>Task<select id="work-filter"><option value="">All tasks</option></select></label>
         <label>Model<select id="model-filter"><option value="">All models</option></select></label>
-        <label>Reported owner/team<select id="owner-filter"><option value="">All owners</option></select></label>
-        <label>Capability<select id="capability-filter"><option value="">Any capability</option></select></label>
+        <label>Owner or team<select id="owner-filter"><option value="">All owners</option></select></label>
+        <label>Available actions<select id="capability-filter"><option value="">Any action</option></select></label>
         <label class="check"><input id="watched" type="checkbox">Watchlist only</label>
       </div>
-      <p id="empty" class="empty">Connecting to read runtime presence.</p>
+      <p id="empty" class="empty">Loading agents…</p>
       <div id="cards" class="cards"></div>
-      <nav class="pagination" aria-label="Runtime pages"><button id="previous" type="button" disabled>Previous</button><span id="page">Page unavailable</span><button id="next" type="button" disabled>Next</button></nav>
+      <nav class="pagination" aria-label="Agent pages"><button id="previous" type="button" disabled>Previous</button><span id="page">Page unavailable</span><button id="next" type="button" disabled>Next</button></nav>
     </section>
     <section id="communications" class="panel" aria-labelledby="communications-title" hidden>
-      <h2 id="communications-title">Communications</h2>
-      <p class="muted">Volatile observation history: at most 24 hours, 100,000 events or 128 MiB, whichever is reached first. Message content is not collected by default.</p>
-      <p id="communications-status" role="status" aria-live="polite">Select Communications to read retained history.</p>
-      <details><summary>Search retained history</summary><div class="filters">
-        <label>Literal search (case-sensitive)<input id="communications-query" type="search" maxlength="200"></label>
-        <label>Participant runtime ID<input id="communications-participant" maxlength="36"></label>
-        <label>Work ID<input id="communications-work" maxlength="36"></label>
-        <label>Thread ID<input id="communications-thread" maxlength="36"></label>
-        <label>Outcome<select id="communications-outcome"><option value="">Any outcome</option><option>queued</option><option>received</option><option>attempted</option><option>observed</option><option>labelled</option><option>abort_requested</option><option>settled</option><option>completed</option><option>failed</option><option>rejected</option><option>expired</option><option>unknown</option></select></label>
+      <h2 id="communications-title">Messages</h2>
+      <p class="muted">History lasts up to 24 hours and may be cleared sooner if it fills up or the server restarts. Message text is saved only with permission.</p>
+      <p id="communications-status" role="status" aria-live="polite">Open Messages to see the history.</p>
+      <details><summary>Search history</summary><div class="filters">
+        <label>Search text (match capitals)<input id="communications-query" type="search" maxlength="200"></label>
+        <label>Agent ID<input id="communications-participant" maxlength="36"></label>
+        <label>Task ID<input id="communications-work" maxlength="36"></label>
+        <label>Message thread ID<input id="communications-thread" maxlength="36"></label>
+        <label>Result<select id="communications-outcome"><option value="">Any result</option><option value="queued">Waiting</option><option value="received">Message received</option><option value="attempted">Passed to agent</option><option value="observed">Seen in conversation</option><option value="labelled">Renamed</option><option value="abort_requested">Asked to stop</option><option value="settled">Finished or stopped</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="rejected">Refused</option><option value="expired">Timed out</option><option value="unknown">Not confirmed</option></select></label>
         <label>From (UTC)<input id="communications-from" type="datetime-local"></label>
         <label>Until (UTC)<input id="communications-to" type="datetime-local"></label>
-        <button id="communications-query-submit" type="button">Search retained history</button>
+        <button id="communications-query-submit" type="button">Search history</button>
       </div></details>
       <div class="actions">
-        <button id="communications-reset" type="button">Read retained history</button>
-        <button id="communications-more" type="button">Read next events</button>
+        <button id="communications-reset" type="button">Show history</button>
+        <button id="communications-more" type="button">Show more</button>
         <button id="communications-updates" type="button" hidden>Show available live updates</button>
-        <label class="check"><input id="communications-follow" type="checkbox">Follow live</label>
-        <label>View<select id="communications-category"><option value="communications">Communications</option><option value="activity">Work activity</option><option value="diagnostics">Diagnostics</option><option value="all">All events</option></select></label>
+        <label class="check"><input id="communications-follow" type="checkbox">Show updates as they arrive</label>
+        <label>View<select id="communications-category"><option value="communications">Messages</option><option value="activity">Work activity</option><option value="diagnostics">Connection problems</option><option value="all">All activity</option></select></label>
         <label>Filter this page<input id="communications-search" type="search" maxlength="200" autocomplete="off"></label>
       </div>
-      <p id="communications-count" class="muted">No events loaded</p>
+      <p id="communications-count" class="muted">No history loaded</p>
       <div id="communications-list"></div>
     </section>
     <aside id="inspector" class="panel" aria-labelledby="inspector-title" hidden>
-      <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Runtime detail</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous runtime</button><button id="inspector-close" type="button">Close detail</button></div></div>
+      <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Agent details</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous agent</button><button id="inspector-close" type="button">Close details</button></div></div>
       <p id="inspector-target" class="identity peer"></p>
       <p id="inspector-status" role="status" aria-live="polite"></p>
-      <nav class="actions" aria-label="Runtime detail views">
+      <nav class="actions" aria-label="Agent details">
         <button id="inspector-overview" type="button" aria-pressed="true">Overview</button>
         <button id="inspector-conversation" type="button" aria-pressed="false">Conversation</button>
-        <button id="inspector-session" type="button" aria-pressed="false">Session</button>
+        <button id="inspector-session" type="button" aria-pressed="false">Saved conversation</button>
         <button id="inspector-changes" type="button" aria-pressed="false">Changes</button>
         <button id="inspector-activity" type="button" aria-pressed="false">Activity</button>
       </nav>
       <div id="inspector-body"></div>
-      <section id="operator-session-panel" hidden aria-label="Stored conversation projection">
-        <div class="actions"><button id="session-read" type="button">Read current session</button><button id="session-earlier" type="button" disabled>Read earlier page</button></div>
+      <section id="operator-session-panel" hidden aria-label="Saved conversation">
+        <div class="actions"><button id="session-read" type="button">Show conversation</button><button id="session-earlier" type="button" disabled>Show earlier messages</button></div>
         <p id="session-status" class="muted"></p><div id="session-records"></div>
       </section>
-      <section id="operator-composer" aria-label="Intervention composer">
-        <h3>Intervene</h3>
-        <label>Action<select id="operation-kind"><option value="notice">Send notice</option><option value="work">Ask to work</option><option value="guidance">Send guidance</option><option value="label">Set label</option><option value="interrupt">Interrupt selected run</option></select></label>
+      <section id="operator-composer" aria-label="Send a request">
+        <h3>Send a request</h3>
+        <label>Action<select id="operation-kind"><option value="notice">Send a message</option><option value="work">Ask agent to work</option><option value="guidance">Guide current work</option><option value="label">Rename agent</option><option value="interrupt">Stop current work</option></select></label>
         <p id="operation-help" class="muted"></p>
-        <label>Message, label or interruption reason<textarea id="operation-text" rows="4" maxlength="16384"></textarea></label>
+        <label>Message, name or reason for stopping<textarea id="operation-text" rows="4" maxlength="16384"></textarea></label>
         <p id="operation-target" class="muted"></p>
-        <div class="actions"><button id="operation-confirm-target" type="button" hidden>Confirm refreshed target</button><button id="operation-send" type="button" disabled>Send notice</button><button id="operation-clear" type="button">Clear draft</button><button id="operation-new-intent" type="button" hidden>I reviewed the unknown outcome; allow a new intent</button></div>
+        <div class="actions"><button id="operation-confirm-target" type="button" hidden>Use this agent's updated details</button><button id="operation-send" type="button" disabled>Send a message</button><button id="operation-clear" type="button">Clear draft</button><button id="operation-new-intent" type="button" hidden>I've checked what happened. Let me send another request.</button></div>
         <p id="operation-status" role="status" aria-live="polite"></p>
       </section>
-      <details id="work-assignment"><summary>Assign or update work</summary>
+      <details id="work-assignment"><summary>Assign a task</summary>
         <p id="assignment-status" class="muted"></p>
         <div class="filters">
-          <label>Work ID<input id="assign-workId" maxlength="36"></label>
-          <label>Objective<input id="assign-objective" maxlength="2048"></label>
-          <label>Phase<select id="assign-phase"><option value="">Not reported</option><option>planning</option><option>implementing</option><option>verifying</option><option>waiting</option><option>completed</option><option>failed</option></select></label>
+          <label>Task ID<input id="assign-workId" maxlength="36"></label>
+          <label>Task<input id="assign-objective" maxlength="2048"></label>
+          <label>Status<select id="assign-phase"><option value="">Not provided</option><option value="planning">Planning</option><option value="implementing">Working</option><option value="verifying">Checking</option><option value="waiting">Waiting</option><option value="completed">Completed</option><option value="failed">Failed</option></select></label>
           <label>Owner/team<input id="assign-owner" maxlength="200"></label>
           <label>Current step<input id="assign-currentStep" maxlength="2048"></label>
           <label>Next step<input id="assign-nextStep" maxlength="2048"></label>
           <label>Project<input id="assign-project" maxlength="2048"></label>
-          <label>Parent work ID<input id="assign-parentWorkId" maxlength="36"></label>
-          <label>Delegated work ID<input id="assign-delegatedWorkId" maxlength="36"></label>
+          <label>Parent task ID<input id="assign-parentWorkId" maxlength="36"></label>
+          <label>Related task ID<input id="assign-delegatedWorkId" maxlength="36"></label>
         </div>
-        <div class="actions"><button id="assignment-load" type="button">Load current assignment</button><button id="assignment-new" type="button">New work item</button><button id="assignment-send" type="button" disabled>Apply assignment</button></div>
+        <div class="actions"><button id="assignment-load" type="button">Reload task details</button><button id="assignment-new" type="button">New task</button><button id="assignment-send" type="button" disabled>Save task</button></div>
       </details>
-      <section aria-label="Operation outcomes"><div class="section-heading"><h3>Operation outcomes</h3><button id="operation-list-refresh" type="button">Refresh activity</button></div><div id="operation-list"></div></section>
-      <div class="actions"><button id="inspector-refresh" type="button">Refresh work report</button>
-        <button id="inspector-watch" type="button" aria-pressed="false">Watch runtime</button>
-        <button id="inspector-communications" type="button">Show recorded communications</button></div>
+      <section aria-label="What happened"><div class="section-heading"><h3>What happened</h3><button id="operation-list-refresh" type="button">Refresh activity</button></div><div id="operation-list"></div></section>
+      <div class="actions"><button id="inspector-refresh" type="button">Refresh task details</button>
+        <button id="inspector-watch" type="button" aria-pressed="false">Watch agent</button>
+        <button id="inspector-communications" type="button">Show messages</button></div>
     </aside>
     </div>
-    <footer><p>Counts describe overlapping runtime properties, not people or tasks. Labels and activity are client reports, not proof of progress.</p>
-      <p>Peer-control badges are agent-reported receiver flags, not operator permission. Receiving means a subscription, not delivery confirmation. Disconnect and clear stops this view only; Reconnect remains possible while the network still admits this page.</p></footer>
-    <noscript><p class="panel">JavaScript is required for this viewer. No presence or credentials are embedded in this page.</p></noscript>
+    <footer><p>An agent can appear in more than one total. Its status tells you what it reports, not whether its work is correct.</p>
+      <p>Ready for messages does not mean a message was read. Agents must allow an action before you can use it. Disconnect clears this page; it does not stop the agents.</p></footer>
+    <noscript><p class="panel">Turn on JavaScript to use this page. No agent details or passwords are included before it connects.</p></noscript>
   </main>
 </body>
 </html>

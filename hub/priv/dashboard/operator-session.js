@@ -16,17 +16,17 @@ const PATHS = Object.freeze({
   disconnect: '/dashboard/api/v1/disconnect',
 });
 const ERRORS = Object.freeze({
-  schema: 'The hub returned an invalid operator document.',
-  limit: 'The operator response exceeded its size limit.',
-  timeout: 'The operator request exceeded its time limit.',
-  transport: 'Could not complete the operator request.',
-  unauthorized: 'The operator session was rejected.',
-  disabled: 'Operator access is disabled on this hub.',
-  forbidden: 'Operator access was denied for this request.',
-  unavailable: 'Operator access is temporarily unavailable.',
+  schema: "The server sent a response we couldn't understand.",
+  limit: "The server response was too large.",
+  timeout: "The request took too long.",
+  transport: "Couldn't complete the request.",
+  unauthorized: "Your connection needs to be refreshed.",
+  disabled: "This server hasn't enabled the dashboard.",
+  forbidden: "You don't have permission to do this.",
+  unavailable: "The dashboard is temporarily unavailable.",
   disconnected: 'This view is disconnected.',
-  cancelled: 'The operator request was cancelled.',
-  reset: 'Presence changed during the read. Refresh to try a new snapshot.',
+  cancelled: "The request was cancelled.",
+  reset: "Agent details changed while loading. Refresh to try again.",
 });
 const sameOrigin = { credentials: 'omit', redirect: 'error', cache: 'no-store', mode: 'same-origin',
   referrerPolicy: 'no-referrer' };

@@ -1,5 +1,6 @@
 import { eventCursor } from './operator-events.js';
 import { mountOperatorControls } from './operator-controls.js';
+import { plainLabel } from './operator-actions.js';
 
 export function historyTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value)) return null;
@@ -11,7 +12,7 @@ export function eventTime(value) {
   if (value === null) return 'Unknown';
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(value)) return 'Unknown';
   const seconds = BigInt(value);
-  if (seconds > 8640000000000n) return 'Outside display range';
+  if (seconds > 8640000000000n) return "Date unavailable";
   // This bounded range is exactly representable, including milliseconds.
   return new Date(Number(seconds * 1000n)).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
 }
@@ -62,7 +63,7 @@ export function createCommunications({ operator, render = () => {}, onObserved =
       if (stream !== own || own.signal.aborted) return;
       streamFailures++;
       if (['forbidden', 'disabled'].includes(error?.code)) observeFleet = false;
-      const explanation = error?.code === 'history' ? 'Observation coverage changed. Reconnecting to a fresh retained window.' : 'Live observation unavailable. Retrying without replaying operations.';
+      const explanation = error?.code === 'history' ? "Some history is no longer available. Reconnecting for the latest updates." : "Live updates stopped. Reconnecting without sending any requests again.";
       state = state.following ? { ...state, events: [], hasPage: false, loading: false,
         following: !['forbidden', 'disabled'].includes(error?.code), error: explanation, streamError: explanation }
         : { ...state, streamError: explanation };
@@ -82,8 +83,8 @@ export function createCommunications({ operator, render = () => {}, onObserved =
       if (gen !== generation) return;
       cursor = 'first';
       state = { ...state, events: [], hasPage: false, following: false,
-        error: error?.code === 'history' ? 'Observation history changed or expired. Read retained history to continue.'
-          : 'Communications unavailable. No current records are retained. Try reading again.' };
+        error: error?.code === 'history' ? "Some history has expired. Open history again to continue."
+          : "Couldn't load messages. Old details have been cleared. Try again." };
     } finally {
       if (gen === generation) { state = { ...state, loading: false }; emit(); }
     }
@@ -117,7 +118,7 @@ export function createCommunications({ operator, render = () => {}, onObserved =
         state = { ...state, events: result.events, coverage: result.coverage, caughtUp: result.nextCursor === null, hasPage: true };
       } catch {
         if (gen !== generation) return;
-        state = { ...state, events: [], hasPage: false, error: 'Retained-history search unavailable or expired. Start a new search.' };
+        state = { ...state, events: [], hasPage: false, error: "The history search failed or expired. Search again." };
       } finally { if (gen === generation) { state = { ...state, loading: false }; emit(); } }
     })();
     flight = own;
@@ -160,12 +161,12 @@ export function createInspector(render = () => {}, loadWork) {
       const workView = await loadWork(target.agentId);
       if (gen !== generation || !state) return;
       if (workView.binding.agentId !== target.agentId || workView.binding.sessionId !== target.sessionId) {
-        state = { ...state, contextChanged: true, workView: null, workError: 'Reported session context changed.' };
+        state = { ...state, contextChanged: true, workView: null, workError: "The agent switched conversations." };
       } else state = { ...state, workView, workError: '' };
     } catch (error) {
       if (gen !== generation || !state) return;
       state = { ...state, workView: null, workError: error?.code === 'not_found'
-        ? 'No current work report is available for this runtime.' : 'Work report unavailable. Read again to retry.' };
+        ? "This agent hasn't shared task details yet." : "Couldn't load task details. Refresh to try again." };
     } finally {
       if (gen === generation && state) { state = { ...state, workLoading: false }; render(state); }
     }
@@ -225,18 +226,18 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     if (!state) {
       detailKey = '';
       byId('inspector-target').textContent = ''; byId('inspector-body').replaceChildren();
-      byId('inspector-status').textContent = ''; byId('inspector-title').textContent = 'Runtime detail';
+      byId('inspector-status').textContent = ''; byId('inspector-title').textContent = "Agent details";
       return;
     }
     const a = state.agent;
     byId('inspector-refresh').disabled = state.workLoading || state.contextChanged || state.availability !== 'present';
     byId('inspector-title').textContent = a.label;
     byId('inspector-watch').setAttribute('aria-pressed', String(isWatched(state.target.agentId)));
-    byId('inspector-watch').textContent = isWatched(state.target.agentId) ? 'Unwatch runtime' : 'Watch runtime';
-    byId('inspector-target').textContent = `Runtime ${state.target.agentId} · saved session ${state.target.sessionId}`;
-    byId('inspector-status').textContent = state.contextChanged ? 'Session context changed. Select the runtime again before intervening.'
-      : state.availability === 'missing' ? 'Historical detail. Runtime is absent from the current snapshot.'
-        : state.availability === 'unknown' ? 'Current presence unavailable. Showing historical detail.' : 'Present in the latest complete snapshot.';
+    byId('inspector-watch').textContent = isWatched(state.target.agentId) ? "Stop watching agent" : "Watch agent";
+    byId('inspector-target').textContent = `Agent ${state.target.agentId} · saved conversation ${state.target.sessionId}`;
+    byId('inspector-status').textContent = state.contextChanged ? "The agent switched conversations. Select it again before sending a request."
+      : state.availability === 'missing' ? "This agent is no longer in the list. These are its last known details."
+        : state.availability === 'unknown' ? "Couldn't check the agent. Showing its last known details." : "Agent was available at the last update.";
     for (const tab of detailTabs) byId(`inspector-${tab}`).setAttribute('aria-pressed', String(tab === detailTab));
     const key = JSON.stringify([state.target, detailTab, a.host, a.pid, a.cwd, a.sessionName, a.model,
       state.workView?.work, state.workView?.binding.capabilities, state.workView?.binding.activeRunId, !state.workView && state.workLoading, state.workError]);
@@ -246,50 +247,50 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     if (detailTab === 'overview') {
       body.replaceChildren();
       const metadata = doc.createElement('details');
-      metadata.append(node('summary', 'Runtime metadata'), node('p', `${a.host} · PID ${a.pid}`),
+      metadata.append(node('summary', "Technical details"), node('p', `${a.host} · Process ID ${a.pid}`),
         node('p', a.cwd), node('p', a.sessionName),
         node('p', a.model ? `${a.model.provider} / ${a.model.id}` : 'Model not reported'));
       if (state.workView) {
         const work = state.workView.work;
-        body.append(node('h3', work.objective ?? 'Objective not reported'),
-          node('p', `Client-reported phase: ${work.phase ?? 'Not reported'}`));
-        if (work.blocker) body.append(node('p', `${work.blocker.kind === 'decision' ? 'Decision requested' : 'Reported blocker'}: ${work.blocker.reason}`));
+        body.append(node('h3', work.objective ?? "No task shared yet"),
+          node('p', `Agent's status: ${plainLabel(work.phase) ?? "Not provided"}`));
+        if (work.blocker) body.append(node('p', `${work.blocker.kind === 'decision' ? "Needs your decision" : "Needs help"}: ${work.blocker.reason}`));
         const fields = doc.createElement('dl');
-        for (const [key, label] of Object.entries({ workId: 'Work ID', currentStep: 'Current step', nextStep: 'Next step',
-          owner: 'Reported owner', project: 'Project', repository: 'Repository', branch: 'Branch', worktree: 'Worktree',
-          parentWorkId: 'Parent work', delegatedWorkId: 'Delegated work' }))
-          fields.append(node('dt', label), node('dd', work[key] ?? 'Not reported'));
+        for (const [key, label] of Object.entries({ workId: "Task ID", currentStep: 'Current step', nextStep: 'Next step',
+          owner: "Owner", project: 'Project', repository: 'Repository', branch: 'Branch', worktree: 'Worktree',
+          parentWorkId: "Parent task", delegatedWorkId: "Related task" }))
+          fields.append(node('dt', label), node('dd', work[key] ?? "Not provided"));
         body.append(fields);
-        for (const [id, label] of [[work.parentWorkId, 'Show parent work'], [work.delegatedWorkId, 'Show delegated work']]) if (id) {
+        for (const [id, label] of [[work.parentWorkId, "Show parent task"], [work.delegatedWorkId, "Show related task"]]) if (id) {
           const link = node('button', label); link.type = 'button';
           link.addEventListener('click', () => { select(false); inspector.clear(); focusWork(id); }); body.append(link);
         }
-        body.append(node('h3', 'Reported evidence'));
-        if (!work.evidence.length) body.append(node('p', 'No evidence reported. A completion report is not independent verification.'));
+        body.append(node('h3', "Supporting details"));
+        if (!work.evidence.length) body.append(node('p', "No supporting details shared yet. Finished work still needs checking."));
         for (const evidence of work.evidence) body.append(evidenceNode(evidence));
-        body.append(node('p', `Negotiated capabilities: ${state.workView.binding.capabilities.join(', ') || 'None'}`),
-          node('p', state.workView.permissions.history ? 'This runtime is explicitly enrolled for bounded volatile message previews.' : 'Message preview history is not enrolled for this runtime.'));
-      } else body.append(node('p', state.workLoading ? 'Reading the current work report…'
-        : state.workError || 'Structured work has not been reported.'));
+        body.append(node('p', `Available actions: ${state.workView.binding.capabilities.map(plainLabel).join(', ') || 'None'}`),
+          node('p', state.workView.permissions.history ? "This agent allows message text to be saved temporarily in history." : "This agent hasn't allowed message text to be saved in history."));
+      } else body.append(node('p', state.workLoading ? "Loading task details…"
+        : state.workError || "No task details shared yet."));
       body.append(metadata);
     } else {
       const unavailable = {
-        conversation: 'Recorded relay communications are available below. Client receipt and model-use reports are not available for this runtime.',
+        conversation: "See messages and request updates below. A message reaching an agent doesn't mean it has used it.",
         session: state.workView?.binding.capabilities.includes('session.current.read.v1')
-          ? 'Inspect a bounded stored conversation projection. Hidden reasoning and raw tool output are excluded. Read permission and content enrollment must both be granted locally.'
-          : 'Current-session inspection is unavailable: no read capability has been negotiated for this runtime.',
-        changes: 'No client-reported changes are available. Shared-checkout changes are not automatically attributed to this runtime.',
-        activity: 'Run and tool activity reporting is unavailable for this runtime. Relay message observations are separate from execution progress.',
+          ? "Read the saved conversation, with the agent's permission. Private reasoning and detailed tool output aren't included."
+          : "This agent doesn't support viewing its conversation here yet.",
+        changes: "No changes shared yet. We don't assume this agent made every change in a shared folder.",
+        activity: "This agent hasn't shared work activity. Message updates alone don't show its progress.",
       };
       if (detailTab === 'changes' && state.workView) {
         const evidence = state.workView.work.evidence.filter(e => ['file', 'commit', 'artifact'].includes(e.kind));
-        body.replaceChildren(node('p', 'Client-reported references. Shared-checkout attribution and unreported diffs are unknown.'));
+        body.replaceChildren(node('p', "Files and links shared by the agent. Other people or agents may also have changed these files."));
         for (const item of evidence) body.append(evidenceNode(item));
-        if (!evidence.length) body.append(node('p', 'No change evidence reported.'));
+        if (!evidence.length) body.append(node('p', "No changes shared yet."));
       } else if (detailTab === 'activity' && state.workView) {
         body.replaceChildren(node('p', state.workView.binding.activeRunId
-          ? `Client reports active run ${state.workView.binding.activeRunId}. Activity is not proof of progress.` : 'No active run reported.'),
-          node('p', 'Operation outcomes below are distinct from work reports. Use Communications for retained relay history.'));
+          ? `Agent reports work in progress: ${state.workView.binding.activeRunId}. Being active doesn't guarantee progress.` : "No work currently reported in progress."),
+          node('p', "Request updates are shown below. Open Messages for earlier history."));
       } else body.replaceChildren(node('p', unavailable[detailTab]));
     }
   }
@@ -303,30 +304,30 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     });
     const items = records.map(event => {
       const root = doc.createElement('article'); root.className = 'communication';
-      const names = { mail_accepted: 'Accepted by relay', mail_dispatched: 'Dispatch attempted', observation_lost: 'Observation gap',
-        work_reported: 'Work reported', work_snapshot: 'Work report updated', run_reported: 'Run state reported', tool_reported: 'Tool state reported',
-        operator_requested: 'Operator request', operator_result: 'Operation outcome reported', blocker_reported: 'Blocker reported', outcome_reported: 'Outcome reported' };
+      const names = { mail_accepted: "Message accepted by server", mail_dispatched: "Server tried to deliver message", observation_lost: "Some history is missing",
+        work_reported: "Task update", work_snapshot: "Task updated", run_reported: "Work status updated", tool_reported: "Tool activity updated",
+        operator_requested: "Dashboard request", operator_result: "Request update", blocker_reported: "Help needed", outcome_reported: "Result shared" };
       root.append(node('h3', names[event.kind]));
       const p = event.payload;
-      if (p.from) root.append(node('p', `${p.from} → ${p.to} · ${p.kind}`));
-      root.append(node('p', `${event.source === 'relay_observed' ? 'Relay observation' : event.source === 'operator_requested' ? 'Network-authorized operator request' : 'Client report'} · ${eventTime(event.occurredAt)} · observed ${eventTime(event.observedAt)}`));
+      if (p.from) root.append(node('p', `${p.from} → ${p.to} · ${plainLabel(p.kind)}`));
+      root.append(node('p', `${event.source === 'relay_observed' ? "Server update" : event.source === 'operator_requested' ? "Dashboard request" : "Agent update"} · ${eventTime(event.occurredAt)} · recorded ${eventTime(event.observedAt)}`));
       if (p.action) {
-        root.append(node('p', `${p.action} · ${p.state}`));
+        root.append(node('p', `${plainLabel(p.action)} · ${plainLabel(p.state)}`));
         if (p.body) root.append(node('p', p.body));
       }
-      if (Object.hasOwn(p, 'activeRunId')) root.append(node('p', p.activeRunId ? `Active run ${p.activeRunId}` : 'No active run reported'));
-      if (p.toolName) root.append(node('p', `${p.toolName} · ${p.state}`));
+      if (Object.hasOwn(p, 'activeRunId')) root.append(node('p', p.activeRunId ? `Work in progress: ${p.activeRunId}` : 'No active run reported'));
+      if (p.toolName) root.append(node('p', `${p.toolName} · ${plainLabel(p.state)}`));
       const participants = [...new Set([p.from, p.to, event.agentId].filter(Boolean))];
       for (const id of participants) {
-        const link = node('button', `Inspect runtime ${id}`); link.type = 'button';
+        const link = node('button', `Open details agent ${id}`); link.type = 'button';
         link.disabled = !resolveAgent(id);
         link.addEventListener('click', () => { const agent = resolveAgent(id); if (agent) { select(false); showRuntime(agent); } });
         root.append(link);
       }
-      if (p.count) root.append(node('p', `${p.count} observations were not retained.`));
+      if (p.count) root.append(node('p', `${p.count} updates were lost or couldn't be confirmed.`));
       if (p.objective || p.reason || p.outcome) root.append(node('p', p.objective ?? p.reason ?? p.outcome));
-      if (p.from) root.append(node('p', p.body ?? 'Content not collected. Acceptance or dispatch does not prove receipt or model use.'));
-      const detail = doc.createElement('details'); detail.append(node('summary', 'Event details'));
+      if (p.from) root.append(node('p', p.body ?? "Message text wasn't saved. We can't tell whether the agent read or used it."));
+      const detail = doc.createElement('details'); detail.append(node('summary', "Technical details"));
       const pre = node('pre', JSON.stringify(event, null, 2)); detail.append(pre); root.append(detail);
       return root;
     });
@@ -342,16 +343,16 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
       inspector.clear(); controls.disconnect(); history.length = 0;
     }
     byId('communications-follow').disabled = !state.connected;
-    byId('communications-status').textContent = !state.connected ? 'Disconnected. Communications cleared.'
-      : state.loading ? 'Reading communications…' : state.error || (!state.hasPage ? 'Select Communications to read retained history.'
-        : `${state.coverage === 'truncated' ? 'Earlier history has expired. ' : ''}${state.caughtUp ? 'Caught up at the last read.' : 'More retained events are available.'} ${state.following ? 'Following the independent observation stream.' : 'Paused for reading.'}`);
+    byId('communications-status').textContent = !state.connected ? "Disconnected. Messages cleared."
+      : state.loading ? "Loading messages…" : state.error || (!state.hasPage ? "Open Messages to see the history."
+        : `${state.coverage === 'truncated' ? "Older history is no longer available. " : ''}${state.caughtUp ? "Up to date at the last check." : "More history is available."} ${state.following ? "New updates appear automatically." : "Paused so you can read."}`);
     byId('communications-more').disabled = !state.connected || state.loading || state.searchMode && state.caughtUp;
-    byId('communications-more').textContent = state.searchMode ? 'Next search results' : 'Read next events';
+    byId('communications-more').textContent = state.searchMode ? "More results" : "Show more";
     byId('communications-query-submit').disabled = !state.connected || state.loading;
     byId('communications-updates').hidden = !state.updates;
-    byId('communications-updates').textContent = `Show latest updates (${state.updates} observed)`;
+    byId('communications-updates').textContent = `Show latest updates (${state.updates} recorded)`;
     if (state.streamError) byId('communications-status').textContent += ` ${state.streamError}`;
-    if (state.events.some(event => event.kind === 'observation_lost')) byId('communications-status').textContent += ' Coverage warning: see Diagnostics for reported gaps.';
+    if (state.events.some(event => event.kind === 'observation_lost')) byId('communications-status').textContent += " Some history may be missing. See Connection problems.";
     byId('communications-reset').disabled = !state.connected || state.loading;
     byId('communications-follow').checked = state.following;
     if (lastEvents !== state.events) { lastEvents = state.events; rows(); }

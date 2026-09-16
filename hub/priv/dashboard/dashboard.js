@@ -1,14 +1,15 @@
 import { createOperatorSession } from './operator-session.js';
 import { mountConsole } from './console-view.js';
+import { plainLabel } from './operator-actions.js';
 
-const ERRORS = Object.freeze({ reset: 'Presence changed during the read. Refresh to try a new snapshot.',
-  schema: 'The hub returned invalid presence data.', limit: 'The read exceeded a presence size limit.',
-  timeout: 'The presence read exceeded its time limit.', transport: 'Could not read presence from the hub.',
-  disabled: 'Operator access is disabled on this hub.',
-  forbidden: 'Operator access was denied for this request.',
-  unauthorized: 'Operator access was rejected for this network path.',
-  unavailable: 'Operator access is temporarily unavailable.',
-  cancelled: 'The operator request was cancelled.',
+const ERRORS = Object.freeze({ reset: "Agent details changed while loading. Refresh to try again.",
+  schema: "We couldn't understand the agent details. Try refreshing.", limit: "There are too many agent details to load at once.",
+  timeout: "Loading agent details took too long.", transport: "Couldn't load agent details from the server.",
+  disabled: "This server hasn't enabled the dashboard.",
+  forbidden: "You don't have permission to do this.",
+  unauthorized: "You can't access the dashboard from this connection.",
+  unavailable: "The dashboard is temporarily unavailable.",
+  cancelled: "The request was cancelled.",
   disconnected: 'This view is disconnected.' });
 
 export function createController({ operator, fetch: fetcher, now = Date.now,
@@ -65,7 +66,7 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
           state = { ...state, workSnapshot, workLoading: false };
         } catch {
           if (generation !== ownGeneration || userDisconnected) return;
-          state = { ...state, workSnapshot: null, workLoading: false, workError: 'Work reports unavailable. Runtime presence is shown separately.' };
+          state = { ...state, workSnapshot: null, workLoading: false, workError: "Task details couldn't be loaded. You can still see the agents." };
         }
       }
     } catch (error) {
@@ -101,7 +102,7 @@ export function counts(agents) {
   return { registered: agents.length, busy: agents.filter((a) => a.status === 'busy').length,
     receiving: agents.filter((a) => a.receiving).length, control: agents.filter((a) => a.acceptsControl).length };
 }
-const modelText = (a) => a.model ? `${a.model.provider} / ${a.model.id}` : 'Not reported';
+const modelText = (a) => a.model ? `${a.model.provider} / ${a.model.id}` : "Not provided";
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 export function selectAgents(agents, { search = '', host = '', activity = '', receiving = '', control = '', sort = 'label' } = {}) {
   const needle = search.slice(0, 200).toLowerCase();
@@ -165,7 +166,7 @@ export function mountDashboard(doc, win) {
           row.addEventListener('click', () => { const agent = current?.snapshot?.agents.find(a => a.agentId === op.agentId); if (agent) consoleView.selectRuntime(agent); });
           operationAttention.set(op.operationId, row); byId('attention-operations').append(row);
         }
-        row.textContent = `${op.kind} · ${op.state} · ${op.agentId}`;
+        row.textContent = `${plainLabel(op.kind)} · ${plainLabel(op.state)} · ${op.agentId}`;
       }
     },
     isWatched: id => watchlist.has(id),
@@ -194,17 +195,17 @@ export function mountDashboard(doc, win) {
     const status = element('span', '', 'badge'), receiving = element('span', '', 'badge'), control = element('span', '', 'badge');
     badges.append(status, receiving, control);
     const details = element('details');
-    const summary = element('summary', 'Runtime details');
+    const summary = element('summary', "Agent details");
     const list = element('dl');
     const fields = {};
-    for (const [key, label] of Object.entries({ agentId: 'Runtime ID', sessionId: 'Saved session ID', host: 'Host', cwd: 'Working directory', pid: 'PID', updatedAt: 'Last registration' })) {
+    for (const [key, label] of Object.entries({ agentId: "Agent ID", sessionId: "Conversation ID", host: "Computer", cwd: "Folder", pid: "Process ID", updatedAt: "Last seen" })) {
       const value = element('dd', '', 'peer'); fields[key] = value;
       list.append(element('dt', label), value);
     }
     const work = element('div', undefined, 'work');
     const objective = element('p', '', 'work-objective peer'), phase = element('p', '', 'identity'), meaningful = element('p', '', 'identity');
     work.append(title, session, objective, phase, meaningful);
-    const inspect = element('button', 'Inspect', 'inspect'); inspect.type = 'button';
+    const inspect = element('button', "Open details", 'inspect'); inspect.type = 'button';
     details.append(summary, list); root.append(work, identity, model, badges, details, inspect);
     const card = { root, title, identity, session, model, status, receiving, control, summary, fields, inspect, objective, phase, meaningful, agent: null };
     inspect.addEventListener('click', () => { if (card.agent) consoleView.selectRuntime(card.agent); });
@@ -229,13 +230,13 @@ export function mountDashboard(doc, win) {
       return compare(key(a), key(b)) || compare(a.label, b.label) || compare(a.agentId, b.agentId);
     });
     page = Math.max(0, Math.min(page, Math.ceil(matching.length / 50) - 1));
-    byId('matching').textContent = snapshot ? `${matching.length} matching of ${agents.length} registered` : 'Counts unavailable';
+    byId('matching').textContent = snapshot ? `${matching.length} matching of ${agents.length} listed` : "Totals unavailable";
     byId('page').textContent = snapshot ? `Page ${page + 1} of ${Math.max(1, Math.ceil(matching.length / 50))}` : 'Page unavailable';
     byId('previous').disabled = !snapshot || page === 0;
     byId('next').disabled = !snapshot || (page + 1) * 50 >= matching.length;
     byId('empty').hidden = Boolean(snapshot && matching.length);
-    byId('empty').textContent = !snapshot ? (current.loading ? 'Reading a complete snapshot…' : current.connected ? 'Presence unavailable. No records or counts are retained.' : 'Disconnected. This view is cleared.')
-      : agents.length === 0 ? 'No runtimes registered in this complete snapshot.' : 'No runtimes match these filters. Summary counts still describe the complete snapshot.';
+    byId('empty').textContent = !snapshot ? (current.loading ? "Loading agents…" : current.connected ? "Couldn't load agents. Old details have been cleared." : 'Disconnected. This view is cleared.')
+      : agents.length === 0 ? "No agents are connected." : "No agents match these filters. Totals still include all agents.";
     const visible = matching.slice(page * 50, (page + 1) * 50);
     const ids = new Set(visible.map((a) => a.agentId));
     const focus = doc.activeElement;
@@ -245,24 +246,24 @@ export function mountDashboard(doc, win) {
       let card = cards.get(a.agentId);
       if (!card) { card = makeCard(); cards.set(a.agentId, card); }
       card.agent = a;
-      card.inspect.setAttribute('aria-label', `Inspect runtime ${shortIds.get(a.agentId)}`);
+      card.inspect.setAttribute('aria-label', `Open details agent ${shortIds.get(a.agentId)}`);
       card.title.textContent = a.label;
-      card.summary.setAttribute('aria-label', `Runtime details for ${shortIds.get(a.agentId)}`);
+      card.summary.setAttribute('aria-label', `Agent details for ${shortIds.get(a.agentId)}`);
       card.identity.textContent = `${a.host} · ${shortIds.get(a.agentId)}`;
       card.session.textContent = a.sessionName;
       const reported = workViews.get(a.agentId)?.work;
-      card.objective.textContent = reported?.objective ?? 'Work not reported';
-      card.phase.textContent = reported ? `${reported.project ?? 'Project not reported'} · ${reported.phase ?? 'phase unknown'}${reported.currentStep ? ` · ${reported.currentStep}` : ''}` : 'Presence-only context';
+      card.objective.textContent = reported?.objective ?? "No task shared yet";
+      card.phase.textContent = reported ? `${reported.project ?? "No project shared"} · ${plainLabel(reported.phase) ?? "status not shared"}${reported.currentStep ? ` · ${reported.currentStep}` : ''}` : "No task details available";
       const last = lastEvents.get(a.agentId);
       if (last) {
         const age = BigInt(Math.floor(Date.now() / 1000)) - BigInt(last.observedAt);
         const when = age < 0n ? 'clock difference' : age < 60n ? `${age}s ago` : age < 3600n ? `${age / 60n}m ago` : `${age / 3600n}h ago`;
-        card.meaningful.textContent = `Last observed ${last.kind}: ${when} · ${last.source.replaceAll('_', ' ')}`;
-      } else card.meaningful.textContent = 'Meaningful event history not observed.';
+        card.meaningful.textContent = `Latest: ${plainLabel(last.kind)} · ${when} · ${plainLabel(last.source)}`;
+      } else card.meaningful.textContent = "No recent activity available.";
       card.model.textContent = modelText(a);
-      card.status.textContent = a.status === 'busy' ? 'Busy' : 'Idle';
-      card.receiving.textContent = a.receiving ? 'Receiving' : 'Not receiving';
-      card.control.textContent = a.acceptsControl ? 'Peer control reported' : 'No peer control reported';
+      card.status.textContent = a.status === 'busy' ? "Working" : "Not working";
+      card.receiving.textContent = a.receiving ? "Ready for messages" : "Not ready for messages";
+      card.control.textContent = a.acceptsControl ? "Allows work requests" : "Work requests not allowed";
       for (const [key, node] of Object.entries(card.fields)) node.textContent = key === 'updatedAt' ? timestamp(a[key], true) : String(a[key]);
       const position = byId('cards').children[index];
       if (position !== card.root) byId('cards').insertBefore(card.root, position ?? null);
@@ -285,9 +286,9 @@ export function mountDashboard(doc, win) {
     for (const agent of state.snapshot?.agents ?? []) {
       if (workViews.get(agent.agentId)?.binding.sessionId !== agent.sessionId) workViews.delete(agent.agentId);
     }
-    byId('attention-status').textContent = !state.connected ? 'Disconnected. Work reports cleared.'
-      : state.workLoading ? 'Reading complete work reports. Any displayed work is from the previous snapshot.' : state.workError
-        || (state.workSnapshot ? 'Explicit client reports, not inferred progress or verified completion.' : 'Work reports have not been read.');
+    byId('attention-status').textContent = !state.connected ? "Disconnected. Task details cleared."
+      : state.workLoading ? "Updating tasks. Showing the previous update for now." : state.workError
+        || (state.workSnapshot ? "These updates come from the agents. Completed work still needs checking." : "Loading tasks…");
     const needs = (state.snapshot?.agents ?? []).filter(a => {
       const w = workViews.get(a.agentId)?.work; return w?.blocker || w?.phase === 'failed';
     });
@@ -304,10 +305,10 @@ export function mountDashboard(doc, win) {
         attentionRows.set(agent.agentId, row); byId('attention-list').append(row);
       }
       const work = workViews.get(agent.agentId).work;
-      row.textContent = `${agent.label} · ${work.blocker?.kind === 'decision' ? 'Decision requested' : work.blocker ? 'Reported blocker' : 'Reported failure'}: ${work.blocker?.reason ?? work.objective ?? 'Outcome evidence not supplied'}`;
+      row.textContent = `${agent.label} · ${work.blocker?.kind === 'decision' ? "Needs your decision" : work.blocker ? "Needs help" : "Reported a problem"}: ${work.blocker?.reason ?? work.objective ?? 'Outcome evidence not supplied'}`;
     }
     byId('attention-empty').hidden = !state.workSnapshot || needs.length !== 0;
-    byId('attention-empty').textContent = 'No explicit blockers or failures in these reports. This does not establish that unreported work is healthy.';
+    byId('attention-empty').textContent = "No problems reported. Some agents may not have shared an update yet.";
     if (displayedSnapshot !== state.snapshot) {
       displayedSnapshot = state.snapshot;
       shortIds = displayIds(state.snapshot?.agents ?? []);
@@ -318,16 +319,16 @@ export function mountDashboard(doc, win) {
     byId('reconnect').hidden = state.connected;
     byId('reconnect').disabled = state.connected;
     byId('auto').checked = state.auto;
-    const pause = state.poll === 'stopped' ? 'Automatic refresh is stopped until you Refresh or Reconnect.'
-      : state.poll === 'hidden' ? 'Paused while this page is hidden.'
-      : state.poll === 'paused' ? 'Automatic refresh paused.'
+    const pause = state.poll === 'stopped' ? "Automatic updates stopped. Refresh or reconnect to try again."
+      : state.poll === 'hidden' ? "Updates pause when you leave this tab."
+      : state.poll === 'paused' ? "Automatic updates paused."
       : `Next automatic read ${state.retryMs / 1000}s after completion.`;
-    const invalid = state.invalidation === 'unknown' ? ' Server session invalidation is uncertain.' : '';
-    byId('status').textContent = !state.connected ? `Disconnected. This view is cleared. Reconnect is allowed while the network still admits this page; it is not a physical lock.${invalid}`
-      : state.loading ? (state.snapshot ? 'Refreshing. Showing a historical snapshot until the complete read succeeds.' : 'Reading presence. Counts unavailable until all pages validate.')
-      : state.error ? `${state.error} No current snapshot. ${pause}`
-      : `Snapshot read complete, not live. ${pause}`;
-    byId('freshness').textContent = `Last successful read: ${state.lastSuccess === null ? 'none' : timestamp(state.lastSuccess)} · Server capture: ${timestamp(state.snapshot?.capturedAt, true)}`;
+    const invalid = state.invalidation === 'unknown' ? " We couldn't confirm the server disconnected this page." : '';
+    byId('status').textContent = !state.connected ? `Disconnected and cleared. You can reconnect while you still have access.${invalid}`
+      : state.loading ? (state.snapshot ? "Updating. Showing the previous details for now." : "Loading agents…")
+      : state.error ? `${state.error} No current details. ${pause}`
+      : `Agent list updated. ${pause}`;
+    byId('freshness').textContent = `Last updated: ${state.lastSuccess === null ? 'none' : timestamp(state.lastSuccess)} · Server update: ${timestamp(state.snapshot?.capturedAt, true)}`;
     const totals = state.snapshot ? counts(state.snapshot.agents) : null;
     for (const key of ['registered', 'busy', 'receiving', 'control']) byId(`${key}-count`).textContent = totals ? String(totals[key]) : '--';
     const selectedHost = byId('host').value;
@@ -335,7 +336,7 @@ export function mountDashboard(doc, win) {
     if (selectedHost && !hosts.includes(selectedHost) && state.snapshot) hosts.push(selectedHost);
     hosts.sort(compare);
     if (hostOptions === null || hosts.length !== hostOptions.length || hosts.some((host, i) => host !== hostOptions[i])) {
-      byId('host').replaceChildren(element('option', 'All hosts'));
+      byId('host').replaceChildren(element('option', "All computers"));
       byId('host').firstChild.value = '';
       for (const host of hosts) { const option = element('option', host); option.value = host; byId('host').append(option); }
       byId('host').value = state.snapshot ? selectedHost : '';
@@ -343,10 +344,10 @@ export function mountDashboard(doc, win) {
     }
     for (const [id, title, values] of [
       ['project', 'All projects', [...workViews.values()].map(v => v.work.project)],
-      ['work-filter', 'All work items', [...workViews.values()].map(v => v.work.workId)],
+      ['work-filter', "All tasks", [...workViews.values()].map(v => v.work.workId)],
       ['model-filter', 'All models', (state.snapshot?.agents ?? []).map(modelText)],
       ['owner-filter', 'All owners', [...workViews.values()].map(v => v.work.owner)],
-      ['capability-filter', 'Any capability', [...workViews.values()].flatMap(v => v.binding.capabilities)],
+      ['capability-filter', "Any action", [...workViews.values()].flatMap(v => v.binding.capabilities)],
     ]) {
       const select = byId(id), selected = select.value;
       const options = [...new Set(values.filter(v => typeof v === 'string'))].sort(compare);
@@ -355,7 +356,7 @@ export function mountDashboard(doc, win) {
       if (optionCache.get(id) !== key) {
         const all = element('option', title); all.value = '';
         select.replaceChildren(all);
-        for (const value of options) { const option = element('option', value); option.value = value; select.append(option); }
+        for (const value of options) { const option = element('option', id === 'capability-filter' ? plainLabel(value) : value); option.value = value; select.append(option); }
         select.value = state.snapshot ? selected : ''; optionCache.set(id, key);
       }
     }

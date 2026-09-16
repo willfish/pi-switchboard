@@ -1,5 +1,22 @@
 import { decodeExactJson, DiscoveryError } from './protocol.js';
 
+// Display names only. Wire values and permission checks stay unchanged.
+export function plainLabel(value) {
+  return ({ notice: 'Message', work: 'Work request', guidance: 'Guidance', label: 'Rename', interrupt: 'Stop request',
+    sessionRead: 'Conversation', workAssign: 'Task update', queued: 'Waiting', accepted: 'Request received',
+    received: 'Message received', attempted: 'Passed to agent', observed: 'Seen in conversation', context_reserved: 'Prepared for later',
+    labelled: 'Renamed', work_assigned: 'Task saved', abort_requested: 'Asked to stop', settled: 'Finished or stopped',
+    completed: 'Completed', cancelled: 'Cancelled', expired: 'Timed out', rejected: 'Refused', unknown: 'Not confirmed', assembling: 'Loading',
+    planning: 'Planning', implementing: 'Working', verifying: 'Checking', waiting: 'Waiting', failed: 'Failed',
+    mail_accepted: 'Message accepted', mail_dispatched: 'Delivery attempt', observation_lost: 'Missing history',
+    work_reported: 'Task update', work_snapshot: 'Task update', run_reported: 'Work status', tool_reported: 'Tool activity',
+    operator_requested: 'Dashboard request', operator_result: 'Request update', blocker_reported: 'Help needed', outcome_reported: 'Result shared',
+    relay_observed: 'Server update', client_reported: 'Agent update',
+    'work.report.v1': 'Task updates', 'work.assign.v1': 'Assign tasks', 'activity.report.v1': 'Activity updates',
+    'session.current.read.v1': 'View conversation', 'notice.receive.v1': 'Receive messages', 'work.enqueue.v1': 'Accept work requests',
+    'guidance.attempt.v1': 'Receive guidance', 'label.set.v1': 'Rename agent', 'run.interrupt.active.v1': 'Stop work' })[value] ?? value;
+}
+
 export const ACTION_CAPS = Object.freeze({ notice: 'notice.receive.v1', work: 'work.enqueue.v1', guidance: 'guidance.attempt.v1',
   label: 'label.set.v1', interrupt: 'run.interrupt.active.v1', sessionRead: 'session.current.read.v1', workAssign: 'work.assign.v1' });
 export const ACTION_PERMISSIONS = Object.freeze({ notice: 'notice', work: 'work', guidance: 'guidance', label: 'label', interrupt: 'interrupt', sessionRead: 'sessionRead', workAssign: 'workAssign' });
