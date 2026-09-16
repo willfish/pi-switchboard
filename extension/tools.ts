@@ -5,6 +5,25 @@ import type { AgentBusRuntime } from "./runtime.ts";
 import { describeOutcome, formatAgentList } from "./commands.ts";
 
 export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
+  const nullableText = () => Type.Union([Type.String(), Type.Null()]);
+  pi.registerTool({ name: 'report_work', label: 'Report work',
+    description: 'Record explicit work metadata for the console. Use a stable UUID workId and null for unknown fields. No credentials, hidden reasoning or raw tool output. This reports work; it does not grant permissions or prove completion.',
+    parameters: Type.Object({
+      workId: nullableText(), objective: nullableText(),
+      phase: Type.Union([StringEnum(['planning', 'implementing', 'verifying', 'waiting', 'completed', 'failed'] as const), Type.Null()]),
+      currentStep: nullableText(), nextStep: nullableText(), owner: nullableText(),
+      blocker: Type.Union([Type.Object({ kind: StringEnum(['blocked', 'decision'] as const), reason: Type.String() }), Type.Null()]),
+      project: nullableText(), repository: nullableText(), branch: nullableText(), worktree: nullableText(),
+      parentWorkId: nullableText(), delegatedWorkId: nullableText(),
+      evidence: Type.Array(Type.Object({ kind: StringEnum(['file', 'test', 'commit', 'artifact'] as const), ref: Type.String() }), { maxItems: 8 }),
+    }),
+    async execute(_id, params, signal) {
+      if (signal?.aborted) throw new Error('cancelled');
+      const work = runtime.reportWork(params);
+      if (typeof work === 'string') throw new Error(work);
+      return { content: [{ type: 'text', text: 'Work report recorded locally. Console synchronization is separate from this acknowledgement.' }], details: { work } };
+    },
+  });
   pi.registerTool({ name: "list_agents", label: "List agents", description: "Fetch live Switchboard agents. Readable output is limited to 50 KiB/2,000 lines; structured details retain all records.",
     parameters: Type.Object({}),
     async execute(_id, _params, signal) {

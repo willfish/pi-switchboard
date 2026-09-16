@@ -2,10 +2,17 @@ import {
   LIMITS, DiscoveryError, abortable, decodeExactJson, discoverPresence,
 } from './protocol.js';
 
+import { decodeEventPage, decodeSearchPage, EVENT_LIMITS } from './operator-events.js';
+import { decodeWorkView, decodeWorkPage, WORK_VIEW_BYTES } from './operator-work.js';
+import { decodeOperation, decodeOperations } from './operator-actions.js';
+import { createObservationParser } from './operator-stream.js';
+
 export const SESSION_LIMITS = Object.freeze({ bootstrapBytes: 2048, requestMs: LIMITS.requestMs });
 const PATHS = Object.freeze({
   session: '/dashboard/api/v1/session',
   presence: '/dashboard/api/v1/presence',
+  events: '/dashboard/api/v1/events',
+  work: '/dashboard/api/v1/work/',
   disconnect: '/dashboard/api/v1/disconnect',
 });
 const ERRORS = Object.freeze({
@@ -40,6 +47,11 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
   setTimer = setTimeout, clearTimer = clearTimeout, render = () => {} } = {}) {
   let generation = 0, nonce = '', flight = null, presenceFlight = null, active = null, userDisconnected = true;
   let bootstrapSeq = 0, pendingBootstrap = 0, presenceSeq = 0, currentPresence = 0;
+  let eventsFlight = null, eventsSeq = 0, currentEvents = 0;
+  let workFlight = null, workSeq = 0, currentWork = 0, actionReadFlight = null;
+  const preceding = (...flights) => Promise.allSettled(flights.filter(Boolean));
+  const mutations = new Set(); let mutationGeneration = 0, observation = null;
+  const operationId = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   let status = 'disconnected', snapshot = null, error = '', invalidation = null;
   const emit = () => render({ status, snapshot, error, invalidation });
   const asError = (error) => error instanceof DiscoveryError ? error : new DiscoveryError('transport');
@@ -57,7 +69,7 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
   };
   emit();
 
-  async function readDocument(url, headers, body, signal, maxBytes) {
+  async function readDocument(url, headers, body, signal, maxBytes, method = 'POST', decode = decodeSession) {
     const request = new AbortController();
     const abortRequest = () => request.abort();
     signal.addEventListener('abort', abortRequest, { once: true });
@@ -71,13 +83,16 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     };
     try {
       const response = await abortable(fetcher(url, {
-        method: 'POST', headers, body, ...sameOrigin, signal: request.signal,
+        method, headers, body, ...sameOrigin, signal: request.signal,
       }), request.signal);
       check();
       if (maxBytes === 0) {
         if (response.status !== 204) fail('transport');
         return;
       }
+      if (method === 'POST' && decode !== decodeSession && [400, 404, 409, 413, 429].includes(response.status)) fail('rejected');
+      if (method === 'GET' && response.status === 409) fail('history');
+      if (method === 'GET' && response.status === 404) fail('not_found');
       if (response.status === 503) fail('unavailable');
       if (response.status === 403 && !response.body) fail('forbidden');
       if (![200, 403].includes(response.status) || !response.body) fail(response.status === 401 ? 'unauthorized' : 'transport');
@@ -107,7 +122,7 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
         } catch { /* Invalid error documents cannot establish the disabled state. */ }
         fail(disabled ? 'disabled' : 'forbidden');
       }
-      return decodeSession(bytes);
+      return decode(bytes);
     } catch (caught) {
       if (timedOut) fail('timeout');
       if (caught instanceof DiscoveryError) throw caught;
@@ -176,7 +191,8 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     });
   }
 
-  async function runPresence(id) {
+  async function runPresence(id, precedingEvents) {
+    if (precedingEvents) await precedingEvents.catch(() => {});
     const live = () => currentPresence !== id || userDisconnected;
     if (live()) fail('cancelled');
     if (flight) await flight.catch(() => {});
@@ -226,10 +242,225 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     if (presenceFlight) return presenceFlight;
     const id = ++presenceSeq;
     currentPresence = id;
-    const own = runPresence(id);
+    const own = runPresence(id, preceding(eventsFlight?.promise, workFlight?.promise, actionReadFlight?.promise));
     presenceFlight = own;
     void own.finally(() => { if (presenceFlight === own) presenceFlight = null; }).catch(() => {});
     return own;
+  }
+
+  async function runRead(path, decode, maxBytes, isCurrent, precedingPresence, deadline = Infinity) {
+    const invalid = () => !isCurrent() || userDisconnected;
+    if (precedingPresence) await precedingPresence.catch(() => {});
+    if (invalid()) fail('cancelled');
+    if (flight) await flight.catch(() => {});
+    if (invalid()) fail('cancelled');
+    if (!nonce) await connect();
+    if (invalid()) fail('cancelled');
+    const gen = generation;
+    const request = new AbortController();
+    active = request;
+    const deadlineTimer = Number.isFinite(deadline) ? setTimer(() => request.abort(), Math.max(0, deadline - now())) : null;
+    const check = () => {
+      if (now() >= deadline) fail('timeout');
+      if (invalid() || dead(gen, request)) fail('cancelled');
+    };
+    try {
+      for (let attempt = 0; ; attempt++) {
+        check();
+        try {
+          const result = await readDocument(path, { 'X-Switchboard-Session': nonce }, undefined,
+            request.signal, maxBytes, 'GET', decode);
+          check();
+          return result;
+        } catch (caught) {
+          check();
+          if (caught?.code !== 'unauthorized' || attempt !== 0) throw caught;
+          nonce = '';
+          const issued = await trackBootstrap(request.signal);
+          check();
+          nonce = issued;
+        }
+      }
+    } finally {
+      if (deadlineTimer !== null) clearTimer(deadlineTimer);
+      request.abort();
+      if (active === request) active = null;
+    }
+  }
+
+  function events(cursor = 'first') {
+    if (userDisconnected) return Promise.reject(new DiscoveryError('disconnected'));
+    if (cursor !== 'first' && (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(cursor)))
+      return Promise.reject(new DiscoveryError('schema'));
+    if (eventsFlight) return eventsFlight.cursor === cursor ? eventsFlight.promise
+      : Promise.reject(new DiscoveryError('busy'));
+    const id = ++eventsSeq;
+    currentEvents = id;
+    const path = PATHS.events + (cursor === 'first' ? '' : `?cursor=${cursor}`);
+    const promise = runRead(path, bytes => decodeEventPage(bytes, cursor), EVENT_LIMITS.pageBytes,
+      () => currentEvents === id, preceding(presenceFlight, workFlight?.promise, actionReadFlight?.promise));
+    const own = { cursor, promise };
+    eventsFlight = own;
+    void promise.finally(() => { if (eventsFlight === own) eventsFlight = null; }).catch(() => {});
+    return promise;
+  }
+
+  function searchEvents(filters = {}, cursor = null, prior = null) {
+    if (userDisconnected) return Promise.reject(new DiscoveryError('disconnected'));
+    const allowed = ['q', 'participant', 'workId', 'threadId', 'outcome', 'from', 'to'];
+    if (Object.keys(filters).some(k => !allowed.includes(k)) || Object.values(filters).some(v => typeof v !== 'string'))
+      return Promise.reject(new DiscoveryError('schema'));
+    if (filters.q && new TextEncoder().encode(filters.q).length > 200) return Promise.reject(new DiscoveryError('limit'));
+    if (cursor !== null && (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(cursor))) return Promise.reject(new DiscoveryError('schema'));
+    const query = new URLSearchParams();
+    for (const key of allowed) if (filters[key]) query.set(key, filters[key]);
+    if (cursor !== null) query.set('cursor', cursor);
+    const path = `/dashboard/api/v1/search${query.size ? `?${query}` : ''}`;
+    if (eventsFlight) return eventsFlight.cursor === path ? eventsFlight.promise : Promise.reject(new DiscoveryError('busy'));
+    const id = ++eventsSeq; currentEvents = id;
+    const promise = runRead(path, bytes => decodeSearchPage(bytes, prior), EVENT_LIMITS.pageBytes,
+      () => currentEvents === id, preceding(presenceFlight, workFlight?.promise, actionReadFlight?.promise));
+    const own = { cursor: path, promise }; eventsFlight = own;
+    void promise.finally(() => { if (eventsFlight === own) eventsFlight = null; }).catch(() => {});
+    return promise;
+  }
+
+  function work(agentId) {
+    if (userDisconnected) return Promise.reject(new DiscoveryError('disconnected'));
+    if (typeof agentId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId))
+      return Promise.reject(new DiscoveryError('schema'));
+    if (workFlight) return workFlight.agentId === agentId ? workFlight.promise
+      : Promise.reject(new DiscoveryError('busy'));
+    const id = ++workSeq; currentWork = id;
+    const promise = runRead(PATHS.work + agentId, bytes => decodeWorkView(bytes, agentId), WORK_VIEW_BYTES,
+      () => currentWork === id, preceding(presenceFlight, eventsFlight?.promise, actionReadFlight?.promise));
+    const own = { agentId, promise }; workFlight = own;
+    void promise.finally(() => { if (workFlight === own) workFlight = null; }).catch(() => {});
+    return promise;
+  }
+
+  async function runFleet(id, before) {
+    await before;
+    const current = () => currentWork === id && !userDisconnected;
+    if (!current()) fail('cancelled');
+    const deadline = now() + 30000, views = [];
+    let first = null, cursor = null, pageIndex = 0, used = 0;
+    do {
+      if (!current()) fail('cancelled');
+      if (now() >= deadline) fail('timeout');
+      const path = '/dashboard/api/v1/work' + (cursor === null ? '' : `?cursor=${cursor}`);
+      const page = await runRead(path, bytes => {
+        used += bytes.byteLength;
+        if (used > 128 * 1024 * 1024) fail('limit');
+        return decodeWorkPage(bytes);
+      }, 1048576, current, null, deadline);
+      if (!current()) fail('cancelled');
+      if (page.page !== pageIndex++) fail();
+      if (first && ['epoch', 'snapshotId', 'revision', 'capturedAt', 'total'].some(k => first[k] !== page[k])) fail('history');
+      first ??= page;
+      if (views.length && page.snapshots.length && views.at(-1).binding.agentId >= page.snapshots[0].binding.agentId) fail();
+      views.push(...page.snapshots);
+      if (views.length > 5000 || views.length > page.total) fail('limit');
+      cursor = page.nextCursor;
+      if (cursor !== null && (!page.snapshots.length || views.length >= page.total)) fail();
+      if (cursor === null && views.length !== page.total) fail();
+    } while (cursor !== null);
+    if (now() >= deadline) fail('timeout');
+    return { epoch: first.epoch, revision: first.revision, capturedAt: first.capturedAt, views };
+  }
+  function fleet() {
+    if (userDisconnected) return Promise.reject(new DiscoveryError('disconnected'));
+    if (workFlight) return workFlight.agentId === '*' ? workFlight.promise : Promise.reject(new DiscoveryError('busy'));
+    const id = ++workSeq; currentWork = id;
+    const promise = runFleet(id, preceding(presenceFlight, eventsFlight?.promise, actionReadFlight?.promise));
+    const own = { agentId: '*', promise }; workFlight = own;
+    void promise.finally(() => { if (workFlight === own) workFlight = null; }).catch(() => {});
+    return promise;
+  }
+
+  async function mutateOperation(path, body, id) {
+    if (userDisconnected) fail('disconnected');
+    if (!operationId(id)) fail();
+    const encoded = JSON.stringify(body);
+    if (new TextEncoder().encode(encoded).length > 32768) fail('limit');
+    if (mutations.size >= 4) fail('busy');
+    const request = new AbortController(), epoch = mutationGeneration;
+    mutations.add(request); let dispatched = false;
+    try {
+      if (flight) await flight;
+      if (epoch !== mutationGeneration || userDisconnected || request.signal.aborted) fail('cancelled');
+      if (!nonce) await connect({ signal: request.signal });
+      if (epoch !== mutationGeneration || userDisconnected || request.signal.aborted) fail('cancelled');
+      dispatched = true;
+      const result = await readDocument(path, { 'content-type': 'application/json', 'X-Switchboard-Session': nonce },
+        encoded, request.signal, 1048576, 'POST', bytes => decodeOperation(bytes, id));
+      if (epoch !== mutationGeneration || userDisconnected || request.signal.aborted) fail('cancelled');
+      return result;
+    } catch (error) {
+      if (dispatched && !['rejected', 'unauthorized', 'forbidden'].includes(error?.code)) fail('outcome_unknown');
+      throw error;
+    } finally { mutations.delete(request); request.abort(); }
+  }
+  function operationRead(path, decode) {
+    if (userDisconnected) return Promise.reject(new DiscoveryError('disconnected'));
+    if (actionReadFlight) return actionReadFlight.path === path ? actionReadFlight.promise : Promise.reject(new DiscoveryError('busy'));
+    const epoch = mutationGeneration;
+    const promise = runRead(path, decode, 1048576, () => mutationGeneration === epoch,
+      preceding(presenceFlight, eventsFlight?.promise, workFlight?.promise));
+    const own = { path, promise }; actionReadFlight = own;
+    void promise.finally(() => { if (actionReadFlight === own) actionReadFlight = null; }).catch(() => {});
+    return promise;
+  }
+  const createOperation = doc => mutateOperation('/dashboard/api/v1/operations', doc, doc.operationId);
+  const cancelOperation = id => mutateOperation(`/dashboard/api/v1/operations/${id}/cancel`, {}, id);
+  function operationStatus(id) {
+    if (!operationId(id)) return Promise.reject(new DiscoveryError('schema'));
+    return operationRead(`/dashboard/api/v1/operations/${id}`, bytes => decodeOperation(bytes, id));
+  }
+  function operations(agentId) {
+    if (!operationId(agentId)) return Promise.reject(new DiscoveryError('schema'));
+    return operationRead(`/dashboard/api/v1/operations?agentId=${agentId}`, bytes => decodeOperations(bytes, agentId));
+  }
+
+  async function observe({ signal, onPage }) {
+    if (userDisconnected) fail('disconnected');
+    if (observation) fail('busy');
+    const request = new AbortController(); observation = request;
+    const cancel = () => request.abort(); signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) request.abort();
+    const epoch = mutationGeneration;
+    let reader, timer = null, deadline = now() + 5000, issued = '', timedOut = false;
+    const arm = ms => { if (timer !== null) clearTimer(timer); deadline = now() + ms;
+      timer = setTimer(() => { timedOut = true; request.abort(); }, ms); };
+    const check = () => {
+      if (timedOut || now() >= deadline) fail('timeout');
+      if (request.signal.aborted || userDisconnected || mutationGeneration !== epoch || issued && issued !== nonce) fail('cancelled');
+    };
+    try {
+      if (flight) await abortable(flight, request.signal);
+      if (!nonce) await connect({ signal: request.signal });
+      if (request.signal.aborted || userDisconnected || mutationGeneration !== epoch) fail('cancelled');
+      issued = nonce; arm(5000);
+      const response = await abortable(fetcher('/dashboard/api/v1/stream', { ...sameOrigin, method: 'GET',
+        headers: { 'X-Switchboard-Session': issued, accept: 'text/event-stream' }, signal: request.signal }), request.signal);
+      check();
+      if (response.status === 401) { nonce = ''; fail('unauthorized'); }
+      if (response.status === 403) fail('forbidden');
+      if (response.status !== 200 || !response.body || !/^text\/event-stream(?:;|$)/i.test(response.headers.get('content-type') ?? '')) fail('unavailable');
+      arm(30000);
+      const parser = createObservationParser(page => { check(); onPage(page); }, () => { check(); arm(30000); });
+      reader = response.body.getReader();
+      for (;;) {
+        const chunk = await abortable(reader.read(), request.signal); check();
+        if (chunk.done) { parser.end(); fail('transport'); }
+        parser.push(chunk.value);
+      }
+    } finally {
+      if (timer !== null) clearTimer(timer);
+      request.abort(); if (reader) Promise.resolve(reader.cancel()).catch(() => {});
+      signal?.removeEventListener('abort', cancel);
+      if (observation === request) observation = null;
+    }
   }
 
   async function disconnect() {
@@ -238,7 +469,15 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     nonce = '';
     userDisconnected = true;
     generation += 1;
+    mutationGeneration++; observation?.abort();
+    for (const mutation of mutations) mutation.abort();
+    mutations.clear();
     currentPresence = 0;
+    currentEvents = 0;
+    eventsFlight = null;
+    currentWork = 0;
+    workFlight = null;
+    actionReadFlight = null;
     flight = null;
     presenceFlight = null;
     active?.abort();
@@ -263,5 +502,5 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     }
   }
 
-  return { connect, presence, disconnect };
+  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, disconnect };
 }

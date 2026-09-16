@@ -65,7 +65,7 @@ async function stopChild(child, closed) {
   try { await bounded(closed, 6000, 'child cleanup deadline'); }
   finally { clearTimeout(timer); }
 }
-async function setup(t) {
+async function setup(t, { operator = false } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'switchboard-pi-'));
   const cleanup = [];
   t.after(async () => {
@@ -82,6 +82,7 @@ async function setup(t) {
   const tokenFile = join(home, 'token'); await writeFile(tokenFile, token, { mode: 0o600 });
   const hub = spawn(hubExecutable, [], { cwd: home, env: { ...cleanEnv(home),
     PI_AGENT_BUS_BIND_HOST: '127.0.0.1', PI_AGENT_BUS_PORT: String(hubPort), PI_AGENT_BUS_TOKEN_FILE: tokenFile,
+    PI_AGENT_BUS_OPERATOR_ACCESS: operator ? 'loopback' : 'disabled',
   }, stdio: ['ignore', 'ignore', 'pipe'] });
   let hubErrors = '';
   hub.stderr.on('data', data => { hubErrors = (hubErrors + data).slice(-16000); });
@@ -202,7 +203,35 @@ async function setup(t) {
       resize: () => command({ op: 'resize', rows: 40, cols: 100 }),
     };
   }
-  return { home, launch, agents, send, modelProvider, sender,
+  let operatorNonce;
+  async function operatorRequest(path, method = 'GET', body) {
+    if (!operatorNonce) {
+      const response = await fetch(url + '/dashboard/api/v1/session', { method: 'POST', headers: { origin: url, 'content-type': 'application/json' }, body: '{}' });
+      assert.equal(response.status, 200); operatorNonce = (await response.json()).session;
+    }
+    return fetch(url + path, { method, headers: { origin: url, 'content-type': 'application/json', 'X-Switchboard-Session': operatorNonce },
+      body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  }
+  async function work(agentId) {
+    return waitFor(async () => { const response = await operatorRequest(`/dashboard/api/v1/work/${agentId}`); return response.status === 200 ? response.json() : undefined; }, 'negotiated runtime work');
+  }
+  async function operate(agentId, kind, payload) {
+    const view = await work(agentId), b = view.binding;
+    const doc = { schemaVersion: 1, operationId: randomUUID(), kind, agentId, bindingId: b.bindingId,
+      runtimeGeneration: b.runtimeGeneration, sessionGeneration: b.sessionGeneration, branchId: b.branchId,
+      runId: kind === 'interrupt' ? b.activeRunId : null, workId: view.work.workId, deadline: String(Date.now() + 25000), payload };
+    const response = await operatorRequest('/dashboard/api/v1/operations', 'POST', doc);
+    assert.equal(response.status, 200, `operator ${kind}: ${response.status}`);
+    return response.json();
+  }
+  async function operationState(operationId, states) {
+    return waitFor(async () => {
+      const response = await operatorRequest(`/dashboard/api/v1/operations/${operationId}`);
+      if (response.status !== 200) return undefined;
+      const status = await response.json(); return states.includes(status.state) ? status : undefined;
+    }, `operation ${states.join('/')}`, 30000);
+  }
+  return { home, launch, agents, send, modelProvider, sender, operatorRequest, work, operate, operationState,
     proxy: async () => {
       const proxy = await responseProxy(url); cleanup.push(() => proxy.close()); return proxy;
     },
@@ -366,6 +395,14 @@ test('32 pending notices reject control before injection; processed unread histo
   assert.ok(JSON.stringify(f.modelProvider.requests[1].messages).includes('replacement notice 33 marker'));
 });
 
+function targetsRuntime(record, id) {
+  if (record.path.includes(id)) return true;
+  if (record.path.startsWith('/v1/operator/') && record.body) {
+    try { return JSON.parse(record.body).agentId === id; } catch { return false; }
+  }
+  return false;
+}
+
 test('delayed real registration response cannot reopen old producers after reload', { timeout: 60000 }, async t => {
   const f = await setup(t); const proxy = await f.proxy();
   proxy.gates.push(r => r.method === 'PUT');
@@ -383,8 +420,8 @@ test('delayed real registration response cannot reopen old producers after reloa
   assert.equal(registration.releaseBoundary, 'downstream-already-closed');
   await delay(5500); // Cross a normal heartbeat interval, not only immediate callbacks.
   const late = proxy.records.slice(before);
-  assert.ok(!late.some(r => r.path.includes(oldId) && r.method !== 'DELETE'), 'no old registration heartbeat, SSE open or retry producer');
-  assert.ok(!proxy.records.some(r => r.method === 'POST'), 'no outbound message produced by stale completion');
+  assert.ok(!late.some(r => targetsRuntime(r, oldId) && r.method !== 'DELETE'), 'no old registration heartbeat, SSE open or retry producer');
+  assert.ok(!proxy.records.some(r => r.method === 'POST' && r.path === '/v1/messages'), 'no outbound message produced by stale completion');
   assert.equal(f.modelProvider.requests.length, 0);
   assert.equal((await f.send(replacement.agentId, 'notice', 'replacement remains usable after delayed registration')).status, 202);
   await waitFor(() => pi.terminal().includes('1 unread'), 'replacement receives fresh notice');
@@ -416,7 +453,7 @@ test('held discovery and old SSE are aborted across reload and shutdown without 
   assert.equal(discovery.releaseBoundary, 'downstream-already-closed');
   assert.equal(oldStream.releaseBoundary, 'downstream-already-closed');
   await delay(5500);
-  assert.ok(!proxy.records.slice(requests).some(r => r.path.includes(agent.agentId) && r.method !== 'DELETE'));
+  assert.ok(!proxy.records.slice(requests).some(r => targetsRuntime(r, agent.agentId) && r.method !== 'DELETE'));
   assert.ok(!(await pi.events()).some(e => e.type === 'input' && e.source === 'extension'));
   assert.equal(f.modelProvider.requests.length, 0);
   assert.doesNotMatch(stripVTControlCharacters(pi.terminalSince(output)), /Read only|held old SSE control/);
@@ -437,7 +474,7 @@ test('held discovery and old SSE are aborted across reload and shutdown without 
   assert.equal(newStream.releaseBoundary, 'downstream-already-closed');
   await delay(5500);
   assert.equal(proxy.records.length, stopped, 'no producers reopen after process shutdown');
-  assert.ok(!proxy.records.some(r => r.method === 'POST'));
+  assert.ok(!proxy.records.some(r => r.method === 'POST' && r.path === '/v1/messages'));
   assert.equal(f.modelProvider.requests.length, 1);
   assert.deepEqual(proxy.errors, []);
 });
@@ -573,6 +610,62 @@ async function enableControl(f, pi) {
   await delay(100); pi.input('\r');
   return waitFor(async () => (await f.agents()).find(a => a.cwd === pi.cwd && a.receiving && a.acceptsControl), 'local consent advertised');
 }
+
+async function enableOperator(f, pi, agentId, scope) {
+  const before = (await pi.events()).filter(e => e.type === 'ui_prompt_start').length;
+  await pi.submit(`/bus operator ${scope} on`);
+  await waitFor(async () => (await pi.events()).filter(e => e.type === 'ui_prompt_start').length > before, 'fresh operator consent dialog');
+  await delay(100); pi.input('\r');
+  const permission = scope === 'read' ? 'sessionRead' : scope === 'manage' ? 'label' : scope === 'notices' ? 'notice' : 'history';
+  return waitFor(async () => { const view = await f.work(agentId); return view.permissions[permission] ? view : undefined; }, 'operator permission advertised');
+}
+
+test('actual Pi operator journey: passive notice, metadata assignment, label, session projection and exact-run abort', { timeout: 180000 }, async t => {
+  const f = await setup(t, { operator: true }); const pi = await f.launch(); const agent = await f.receiving(pi.cwd);
+  const initial = await f.work(agent.agentId);
+  assert.equal(initial.permissions.notice, false); assert.equal(initial.permissions.sessionRead, false); assert.equal(initial.permissions.history, false);
+  await enableOperator(f, pi, agent.agentId, 'notices');
+  const notice = await f.operate(agent.agentId, 'notice', { text: 'operator passive context marker' });
+  await f.operationState(notice.operationId, ['received']); assert.equal(f.modelProvider.requests.length, 0);
+  await enableOperator(f, pi, agent.agentId, 'manage');
+  const workFixtures = JSON.parse(await readFile(join(fixtures, '..', 'operator-work.json'), 'utf8'));
+  const assigned = { ...workFixtures.allNull, workId: randomUUID(), objective: 'Synthetic operator objective', currentStep: 'Inspect', nextStep: 'Verify' };
+  const assignment = await f.operate(agent.agentId, 'workAssign', { work: assigned });
+  await f.operationState(assignment.operationId, ['work_assigned']);
+  await waitFor(async () => (await f.work(agent.agentId)).work.workId === assigned.workId, 'assigned work advertised');
+  assert.equal(f.modelProvider.requests.length, 0);
+  const label = await f.operate(agent.agentId, 'label', { label: 'Operator label' });
+  await f.operationState(label.operationId, ['labelled']);
+  await waitFor(async () => (await f.agents()).some(a => a.agentId === agent.agentId && a.label === 'Operator label'), 'label in actual presence');
+  await pi.submit('operator visible session marker'); await pi.event('agent_settled');
+  assert.ok(JSON.stringify(f.modelProvider.requests[0].messages).includes('operator passive context marker'));
+  await enableOperator(f, pi, agent.agentId, 'read');
+  const inspection = await f.operate(agent.agentId, 'sessionRead', { leafId: null, limit: '64' });
+  const completed = await f.operationState(inspection.operationId, ['completed']);
+  assert.ok(completed.page.records.some(r => r.role === 'user' && r.text.includes('operator visible session marker')));
+  assert.ok(completed.page.records.every(r => Object.keys(r).sort().join(',') === 'entryId,role,text'));
+  f.modelProvider.scripts.push({ hold: true }); await pi.submit('operator interrupt held run');
+  await waitFor(() => f.modelProvider.heldCount === 1, 'operator run actually active');
+  await waitFor(async () => (await f.work(agent.agentId)).binding.activeRunId !== null, 'active run identity advertised');
+  const interrupt = await f.operate(agent.agentId, 'interrupt', { reason: 'Synthetic cancellation' });
+  const settled = await f.operationState(interrupt.operationId, ['settled']);
+  assert.ok(settled.runId); assert.equal(settled.agentId, agent.agentId);
+  await pi.quit(); assert.deepEqual(f.modelProvider.errors, []);
+});
+
+test('actual Pi intercepted operator guidance reports attempt, never queued or consumed', { timeout: 90000 }, async t => {
+  const f = await setup(t, { operator: true }); const pi = await f.launch(); const agent = await enableControl(f, pi);
+  await waitFor(async () => (await f.work(agent.agentId)).permissions.guidance, 'operator guidance consent');
+  f.modelProvider.scripts.push({ hold: true }); await pi.submit('operator held guidance run');
+  await waitFor(() => f.modelProvider.heldCount === 1, 'held active guidance run');
+  await pi.control({ input: 'handled' });
+  const guidance = await f.operate(agent.agentId, 'guidance', { text: 'intercepted operator guidance marker' });
+  await pi.event('input', e => e.source === 'extension' && e.text.includes('intercepted operator guidance marker'));
+  const status = await f.operationState(guidance.operationId, ['attempted']);
+  assert.equal(status.state, 'attempted'); assert.equal(f.modelProvider.requests.length, 1);
+  assert.ok(status.unsupported.includes('sdk_void_not_queued'));
+  f.modelProvider.release(); await pi.event('agent_settled'); await pi.quit();
+});
 
 for (const interception of ['handled', 'transform', 'delay']) {
   test(`${interception} remote input retains exact control slot until consumption or reload`, { timeout: 60000 }, async t => {

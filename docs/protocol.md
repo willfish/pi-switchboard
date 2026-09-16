@@ -4,7 +4,7 @@ The hub is a volatile relay, not a job queue or remote-execution acknowledgement
 
 ## Trust and identity
 
-All `/v1` routes require `Authorization: Bearer <token>`. `/health` is unauthenticated liveness, not proof that the store can accept work. The unauthenticated `/dashboard/` shell and fixed assets contain no presence or credentials. Optional `/dashboard/api/v1` routes provide network-authorized operator sessions and the same bounded discovery projection without accepting the relay bearer as a browser credential. Supplied browser origins must match the request origin for reads; mutations require a matching Origin. Cross-site and same-site Fetch Metadata are refused, while native requests without browser metadata remain supported. No CORS or cookie authentication is provided. Restrict network access independently of the token.
+All `/v1` routes require `Authorization: Bearer <token>`. `/health` is unauthenticated liveness, not proof that the store can accept work. The unauthenticated `/dashboard/` shell and fixed assets contain no presence or credentials. Optional `/dashboard/api/v1` routes provide network-authorized operator sessions, bounded observation/work projections and typed operations without accepting the relay bearer as a browser credential. The native operator namespace remains bearer-authenticated. See [operator protocol](operator-protocol.md). Supplied browser origins must match the request origin for reads; mutations require a matching Origin. Cross-site and same-site Fetch Metadata are refused, while native requests without browser metadata remain supported. No CORS or cookie authentication is provided. Restrict network access independently of the token.
 
 Every token holder can inspect presence and impersonate other peers. Presence exposes host, cwd, session name, label, provider/model and activity. This is for trusted peers, not hostile multi-user isolation.
 
@@ -21,6 +21,11 @@ Use UTF-8 JSON with exact schemas. Reject duplicate/unknown keys, malformed Unic
 | POST | `/dashboard/api/v1/session` | Network-admitted automatic session, exact empty JSON object |
 | POST | `/dashboard/api/v1/disconnect` | Invalidate this operator session, 204 |
 | GET | `/dashboard/api/v1/presence[?cursor=…]` | Operator-session-authenticated discovery page |
+| GET | `/dashboard/api/v1/work[/:agentId]` | Bounded complete work snapshots or one revalidated runtime |
+| GET | `/dashboard/api/v1/events`, `/search`, `/stream` | Independent bounded journal observation |
+| POST, GET | `/dashboard/api/v1/operations…` | Typed create/status/cancel and metadata summaries |
+| POST | `/v1/operator/announce`, `/activity`, `/results` | Native binding, metadata and bounded results |
+| GET | `/v1/operator/requests`, `/content` | Native typed descriptors and bound content handles |
 | PUT | `/v1/agents/:agentId` | Register/update, 204 |
 | DELETE | `/v1/agents/:agentId` | Remove, 204 |
 | GET | `/v1/agents[?cursor=…]` | One bounded discovery page |

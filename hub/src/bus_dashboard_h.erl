@@ -29,7 +29,10 @@ init(Req, Asset) ->
 %% Accept only canonical raw paths, even when an alias resolves to this handler.
 paths() -> [<<"/">>, <<"/dashboard">>, <<"/dashboard/">>,
     <<"/dashboard/dashboard.css">>, <<"/dashboard/dashboard.js">>,
-    <<"/dashboard/protocol.js">>, <<"/dashboard/operator-session.js">>].
+    <<"/dashboard/protocol.js">>, <<"/dashboard/operator-session.js">>,
+    <<"/dashboard/operator-events.js">>, <<"/dashboard/console-view.js">>,
+    <<"/dashboard/operator-work.js">>, <<"/dashboard/operator-actions.js">>,
+    <<"/dashboard/operator-controls.js">>, <<"/dashboard/operator-stream.js">>].
 
 serve(Req, redirect, Headers) ->
     cowboy_req:reply(302, Headers#{<<"location">> => <<"/dashboard/">>}, <<>>, Req);
@@ -54,4 +57,10 @@ asset(index) -> {"index.html", <<"text/html; charset=utf-8">>};
 asset(css) -> {"dashboard.css", <<"text/css; charset=utf-8">>};
 asset(dashboard) -> {"dashboard.js", <<"text/javascript; charset=utf-8">>};
 asset(protocol) -> {"protocol.js", <<"text/javascript; charset=utf-8">>};
-asset(operator_session) -> {"operator-session.js", <<"text/javascript; charset=utf-8">>}.
+asset(operator_session) -> {"operator-session.js", <<"text/javascript; charset=utf-8">>};
+asset(operator_events) -> {"operator-events.js", <<"text/javascript; charset=utf-8">>};
+asset(console) -> {"console-view.js", <<"text/javascript; charset=utf-8">>};
+asset(operator_work) -> {"operator-work.js", <<"text/javascript; charset=utf-8">>};
+asset(operator_actions) -> {"operator-actions.js", <<"text/javascript; charset=utf-8">>};
+asset(operator_controls) -> {"operator-controls.js", <<"text/javascript; charset=utf-8">>};
+asset(operator_stream) -> {"operator-stream.js", <<"text/javascript; charset=utf-8">>}.

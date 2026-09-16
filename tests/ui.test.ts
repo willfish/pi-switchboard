@@ -19,7 +19,7 @@ function ui() {
 
 it("real root entry binds host registrations without starting fetch or timers", () => {
   const sdk = host(); entry(sdk.pi);
-  assert.equal(sdk.tools.size, 3); assert.equal(sdk.commands.size, 4); assert.equal(sdk.injected.length, 0);
+  assert.equal(sdk.tools.size, 4); assert.equal(sdk.commands.size, 4); assert.equal(sdk.injected.length, 0);
 });
 
 it("completion values use full population uniqueness and documented labels/provider descriptions without I/O", () => {

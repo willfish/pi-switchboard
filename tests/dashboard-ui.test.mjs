@@ -221,7 +221,7 @@ const html = await readFile(new URL('../hub/priv/dashboard/index.html', import.m
 function dom() {
   const doc = new Node('document'); doc.doc = doc; doc.hidden = false; doc.documentElement = new Node('html', doc);
   const ids = new Map();
-  for (const match of html.matchAll(/<([a-z]+)\b[^>]*\bid="([^"]+)"[^>]*>/g)) ids.set(match[2], new Node(match[1], doc));
+  for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"[^>]*>/g)) ids.set(match[2], new Node(match[1], doc));
   doc.createElement = (tag) => new Node(tag, doc); doc.getElementById = (id) => ids.get(id);
   ids.get('sort').value = 'label'; ids.get('theme').value = 'system';
   const win = new Node('window', doc); win.navigator = { onLine: true };
@@ -292,6 +292,115 @@ test('mount auto-connects, disconnect stays down, reconnect, focus and late work
     win.fire('pagehide'); assert.equal(el('cards').children.length, 0); assert.equal(doc.activeElement, el('reconnect'));
     win.fire('pageshow', { persisted: true }); assert.equal(el('reconnect').hidden, false);
   } finally { controller.disconnect(); globalThis.fetch = originalFetch; }
+});
+
+test('console navigation loads independent communications and disconnect clears it', async () => {
+  const { doc, win, el } = dom(); const original = globalThis.fetch;
+  const presenceFetch = mockFetch([agent(1)]); let reads = 0;
+  const event = { schemaVersion: 1, epoch: id(99), sequence: '1', eventId: id(98), observedAt: '100',
+    occurredAt: '99', source: 'relay_observed', kind: 'mail_accepted', agentId: id(2), sessionId: null,
+    workId: null, threadId: null, operationId: null,
+    payload: { id: id(3), from: id(1), to: id(2), kind: 'notice', acceptedAt: '99', receiving: true, bodyBytes: 5 } };
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).includes('/api/v1/events')) return presenceFetch(url, options);
+    reads++;
+    return new Response(JSON.stringify({ epoch: id(99), fromSequence: '0', toSequence: '1', retainedFrom: '1',
+      coverage: 'live', caughtUp: true, nextCursor: null, events: [event] }));
+  };
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle(); assert.equal(reads, 0);
+    descendants(el('cards'), 'BUTTON')[0].fire('click');
+    assert.equal(el('inspector').hidden, false);
+    assert.match(el('inspector-target').textContent, new RegExp(id(1)));
+    el('inspector-session').fire('click');
+    assert.match(el('inspector-body').textContent, /no read capability/);
+    el('view-communications').fire('click'); await settle();
+    assert.equal(reads, 1); assert.equal(el('runtimes').hidden, true);
+    assert.equal(el('communications').hidden, false);
+    assert.match(el('communications-list').textContent, /Accepted by relay/);
+    assert.match(el('communications-list').textContent, /Content not collected/);
+    el('view-fleet').fire('click'); assert.equal(el('runtimes').hidden, false);
+    el('disconnect').fire('click'); await settle();
+    assert.equal(el('communications-list').children.length, 0);
+    assert.equal(el('inspector').hidden, true);
+    assert.equal(el('inspector-target').textContent, '');
+    assert.match(el('communications-status').textContent, /cleared/);
+  } finally { controller.disconnect(); globalThis.fetch = original; }
+});
+
+test('inspector shows complete reported work as literal data, including evidence and unknowns', async () => {
+  const { doc, win, el } = dom(); const original = globalThis.fetch;
+  const fixtures = JSON.parse(await readFile(new URL('./fixtures/operator-work.json', import.meta.url), 'utf8'));
+  const work = { ...fixtures.hostile, nextStep: null };
+  const presenceFetch = mockFetch([agent(1)]);
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).includes('/api/v1/work/')) return presenceFetch(url, options);
+    return new Response(JSON.stringify({ binding: { schemaVersion: 1, agentId: id(1), sessionId: id(999),
+      runtimeGeneration: '1', sessionGeneration: '1', branchId: null, activeRunId: null, registration: { epoch: id(2), generation: '1' },
+      permissionRevision: '0', reportRevision: '1', capabilities: ['work.report.v1'], bindingId: id(3), workRevision: '1' },
+      work, permissions: { notice: false, work: false, guidance: false, sessionRead: false, label: false, interrupt: false, content: false, workAssign: false, history: false } }));
+  };
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle(); descendants(el('cards'), 'BUTTON')[0].fire('click'); await settle(); await settle();
+    assert.match(el('inspector-body').textContent, /<script>alert\(1\)<\/script>/);
+    assert.match(el('inspector-body').textContent, /Client-reported phase: waiting/);
+    assert.match(el('inspector-body').textContent, /javascript:alert\(1\)/);
+    assert.match(el('inspector-body').textContent, /Not reported/);
+    assert.equal(descendants(el('inspector-body'), 'SCRIPT').length, 0);
+    assert.equal(descendants(el('inspector-body'), 'A').length, 0);
+    const metadata = descendants(el('inspector-body'), 'DETAILS')[0]; metadata.open = true;
+    await controller.refresh(); await settle();
+    assert.equal(descendants(el('inspector-body'), 'DETAILS')[0] === metadata, true);
+    assert.equal(metadata.open, true);
+  } finally { controller.disconnect(); globalThis.fetch = original; }
+});
+
+test('fleet work, attention, permission-gated notice and changed-target confirmation form one journey', async () => {
+  const { doc, win, el } = dom(); const original = globalThis.fetch;
+  const fixtures = JSON.parse(await readFile(new URL('./fixtures/operator-work.json', import.meta.url), 'utf8'));
+  let revision = '1'; const creates = [];
+  const workView = () => ({ binding: { schemaVersion: 1, agentId: id(1), sessionId: id(999), runtimeGeneration: '1', sessionGeneration: '1',
+    activeRunId: null, branchId: null, registration: { epoch: id(9000), generation: '1' }, permissionRevision: '1', reportRevision: revision,
+    capabilities: ['work.report.v1', 'notice.receive.v1'], bindingId: id(5), workRevision: revision },
+    work: { ...fixtures.populated, objective: 'Investigate a reported blocker' },
+    permissions: { notice: true, work: false, guidance: false, sessionRead: false, label: false, interrupt: false, content: false, workAssign: false, history: false } });
+  globalThis.fetch = async (url, options) => {
+    if (url.endsWith('/session')) return new Response(JSON.stringify({ session: nonce(1) }));
+    if (url.endsWith('/disconnect')) return new Response(null, { status: 204 });
+    if (url.endsWith('/stream')) return new Response('{}', { status: 503 });
+    if (url.endsWith('/presence')) return new Response(JSON.stringify(pageDoc([agent(1)])));
+    if (url.endsWith('/work')) return new Response(JSON.stringify({ epoch: id(9000), snapshotId: id(7), revision, capturedAt: 1770000000,
+      page: 0, total: 1, snapshots: [workView()], nextCursor: null }));
+    if (url.includes('/work/')) return new Response(JSON.stringify(workView()));
+    if (url.endsWith('/operations') && options.method === 'POST') {
+      const request = JSON.parse(options.body); creates.push(request);
+      const { payload, ...rest } = request;
+      return new Response(JSON.stringify({ ...rest, sessionId: id(999), state: 'received', createdAt: String(Date.now()),
+        expiresAt: request.deadline, unsupportedWithdrawal: false, unsupported: ['notice_not_executed'], page: null }));
+    }
+    throw new Error('unexpected route');
+  };
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle(); await settle(); await settle();
+    assert.match(el('cards').textContent, /Investigate a reported blocker/);
+    assert.equal(el('attention-list').children.length, 1);
+    el('attention-list').children[0].fire('click'); await settle(); await settle();
+    el('operation-text').value = 'A scoped operator notice'; el('operation-text').fire('input');
+    assert.equal(el('operation-send').disabled, false);
+    el('operation-send').fire('click'); await settle(); await settle(); await settle();
+    assert.equal(creates.length, 1); assert.equal(creates[0].agentId, id(1));
+    assert.equal(creates[0].workId, fixtures.populated.workId); assert.equal(creates[0].kind, 'notice');
+    assert.match(el('operation-list').textContent, /Notice received, not a read receipt/);
+    el('operation-text').value = 'A second draft'; el('operation-text').fire('input'); revision = '2';
+    el('inspector-refresh').fire('click'); await settle(); await settle();
+    assert.equal(el('operation-send').disabled, true); assert.equal(el('operation-confirm-target').hidden, false);
+    assert.equal(creates.length, 1);
+    el('disconnect').fire('click'); await settle();
+    assert.equal(el('operation-text').value, ''); assert.equal(el('operation-list').children.length, 0);
+  } finally { controller.disconnect(); globalThis.fetch = original; }
 });
 
 test('display IDs are unique over the full snapshot with suffix extension and UUID fallback', () => {
@@ -408,7 +517,8 @@ test('static accessibility and containment hooks have no inline code, storage or
   assert.doesNotMatch(html, /type="password"|id="token"|id="unlock-form"|Unlock presence viewer/);
   assert.match(html, /Disconnect and clear/); assert.match(html, />Reconnect</);
   assert.match(html, /maxlength="200"/);
-  assert.match(html, /aria-live="polite"/); assert.match(html, /Skip to runtimes/);
+  assert.match(html, /aria-live="polite"/); assert.match(html, /href="#console-content">Skip to console content/);
+  assert.match(html, /id="console-content"[^>]*tabindex="-1"/);
   assert.match(html, /Peer control reported/);
   assert.match(css, /unicode-bidi: plaintext/); assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /prefers-color-scheme: dark/); assert.match(css, /:focus-visible/); assert.match(css, /max-width: 440px/);

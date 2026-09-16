@@ -1,4 +1,5 @@
 import { createOperatorSession } from './operator-session.js';
+import { mountConsole } from './console-view.js';
 
 const ERRORS = Object.freeze({ reset: 'Presence changed during the read. Refresh to try a new snapshot.',
   schema: 'The hub returned invalid presence data.', limit: 'The read exceeded a presence size limit.',
@@ -15,7 +16,8 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
   const session = operator ?? createOperatorSession({ fetch: fetcher });
   let generation = 0, active = null, timer = null, failures = 0, userDisconnected = false, lastCode = '';
   let state = { connected: true, loading: true, auto: true, hidden, snapshot: null,
-    lastSuccess: null, error: '', retryMs: 15000, invalidation: null };
+    lastSuccess: null, error: '', retryMs: 15000, invalidation: null,
+    workSnapshot: null, workError: '', workLoading: false };
   const pollMode = () => userDisconnected ? 'disconnected' : lastCode === 'disabled' ? 'stopped'
     : state.hidden ? 'hidden' : state.auto ? 'scheduled' : 'paused';
   const emit = () => render({ ...state, poll: pollMode() });
@@ -30,7 +32,7 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
     const ownGeneration = ++generation; userDisconnected = true; unschedule();
     active = null; failures = 0; lastCode = '';
     state = { ...state, connected: false, loading: false, snapshot: null, lastSuccess: null,
-      error: '', retryMs: 15000, invalidation: null };
+      error: '', retryMs: 15000, invalidation: null, workSnapshot: null, workError: '', workLoading: false };
     emit();
     void Promise.resolve(session.disconnect()).then((result) => {
       if (generation !== ownGeneration || !userDisconnected) return;
@@ -53,13 +55,25 @@ export function createController({ operator, fetch: fetcher, now = Date.now,
       const snapshot = await session.presence();
       if (generation !== ownGeneration || userDisconnected || active !== kind) return;
       failures = 0; lastCode = '';
-      state = { ...state, snapshot, lastSuccess: now(), retryMs: 15000, error: '' };
+      state = { ...state, snapshot, lastSuccess: now(), retryMs: 15000, error: '',
+        workError: '', workLoading: Boolean(session.fleet) }; emit();
+      if (session.fleet) {
+        try {
+          const workSnapshot = await session.fleet();
+          if (generation !== ownGeneration || userDisconnected) return;
+          if (workSnapshot.epoch !== snapshot.epoch) throw new Error('work epoch changed');
+          state = { ...state, workSnapshot, workLoading: false };
+        } catch {
+          if (generation !== ownGeneration || userDisconnected) return;
+          state = { ...state, workSnapshot: null, workLoading: false, workError: 'Work reports unavailable. Runtime presence is shown separately.' };
+        }
+      }
     } catch (error) {
       if (generation !== ownGeneration || userDisconnected || active !== kind) return;
       lastCode = error?.code ?? 'transport';
       if (lastCode === 'disconnected') { disconnect(); return; }
       failures += 1;
-      state = { ...state, snapshot: null, error: ERRORS[lastCode] ?? ERRORS.transport,
+      state = { ...state, snapshot: null, workSnapshot: null, workLoading: false, workError: '', error: ERRORS[lastCode] ?? ERRORS.transport,
         retryMs: lastCode === 'disabled' ? 15000 : failures === 1 ? 30000 : 60000 };
     } finally {
       if (generation === ownGeneration && userDisconnected === false && active === kind) {
@@ -127,10 +141,48 @@ export function mountDashboard(doc, win) {
     if (className) node.className = className;
     return node;
   };
+  const operator = createOperatorSession(), watchlist = new Set(), operationAttention = new Map();
+  const lastEvents = new Map(); let observedEpoch = null, observedAgents = new Map();
+  const consoleView = mountConsole(doc, operator, {
+    onObserved(events, caughtUp, epoch) {
+      if (observedEpoch !== epoch) { observedEpoch = epoch; lastEvents.clear(); }
+      for (const event of events) for (const id of new Set([event.agentId, event.payload.from, event.payload.to].filter(Boolean))) {
+        const agent = observedAgents.get(id); if (!agent) continue;
+        if (event.sessionId !== null && event.sessionId !== agent.sessionId) continue;
+        const prior = lastEvents.get(id);
+        if (!prior || BigInt(event.sequence) > BigInt(prior.sequence)) lastEvents.set(id,
+          { sequence: event.sequence, observedAt: event.observedAt, kind: event.kind, source: event.source });
+      }
+      if (caughtUp && current?.snapshot) renderRows();
+    },
+    onAttention(operations) {
+      const wanted = new Set(operations.map(op => op.operationId));
+      for (const [id, row] of operationAttention) if (!wanted.has(id)) { row.remove(); operationAttention.delete(id); }
+      for (const op of operations) {
+        let row = operationAttention.get(op.operationId);
+        if (!row) {
+          row = element('button'); row.type = 'button';
+          row.addEventListener('click', () => { const agent = current?.snapshot?.agents.find(a => a.agentId === op.agentId); if (agent) consoleView.selectRuntime(agent); });
+          operationAttention.set(op.operationId, row); byId('attention-operations').append(row);
+        }
+        row.textContent = `${op.kind} · ${op.state} · ${op.agentId}`;
+      }
+    },
+    isWatched: id => watchlist.has(id),
+    resolveAgent: id => current?.snapshot?.agents.find(agent => agent.agentId === id),
+    focusWork(id) {
+      const select = byId('work-filter');
+      if (![...select.children].some(option => option.value === id)) { const option = element('option', id); option.value = id; select.append(option); }
+      select.value = id; page = 0; renderRows(); byId('runtimes').focus();
+    },
+    toggleWatch(id) { if (watchlist.has(id)) watchlist.delete(id); else watchlist.add(id); renderRows(); },
+  });
   let current, page = 0, controller, wasConnected = true, hostOptions = null;
   const cards = new Map();
-  let displayedSnapshot = null, shortIds = new Map();
-  const filterIds = ['search', 'host', 'activity', 'receiving', 'control', 'sort'];
+  let displayedSnapshot = null, shortIds = new Map(), workViews = new Map();
+  const attentionRows = new Map();
+  const filterIds = ['search', 'host', 'activity', 'receiving', 'control', 'sort', 'project', 'work-filter', 'model-filter', 'owner-filter', 'capability-filter'];
+  const optionCache = new Map();
   const filters = () => Object.fromEntries(filterIds.map((id) => [id, byId(id).value]));
   function makeCard() {
     const root = element('article', undefined, 'card');
@@ -150,14 +202,32 @@ export function mountDashboard(doc, win) {
       list.append(element('dt', label), value);
     }
     const work = element('div', undefined, 'work');
-    work.append(title, session);
-    details.append(summary, list); root.append(work, identity, model, badges, details);
-    return { root, title, identity, session, model, status, receiving, control, summary, fields };
+    const objective = element('p', '', 'work-objective peer'), phase = element('p', '', 'identity'), meaningful = element('p', '', 'identity');
+    work.append(title, session, objective, phase, meaningful);
+    const inspect = element('button', 'Inspect', 'inspect'); inspect.type = 'button';
+    details.append(summary, list); root.append(work, identity, model, badges, details, inspect);
+    const card = { root, title, identity, session, model, status, receiving, control, summary, fields, inspect, objective, phase, meaningful, agent: null };
+    inspect.addEventListener('click', () => { if (card.agent) consoleView.selectRuntime(card.agent); });
+    return card;
   }
   function renderRows() {
     const snapshot = current.snapshot;
     const agents = snapshot?.agents ?? [];
-    const matching = selectAgents(agents, filters());
+    const selected = filters();
+    const matching = selectAgents(agents, selected).filter(agent => {
+      const view = workViews.get(agent.agentId), work = view?.work;
+      return (!selected.project || work?.project === selected.project)
+        && (!selected['work-filter'] || work?.workId === selected['work-filter'])
+        && (!selected['model-filter'] || modelText(agent) === selected['model-filter'])
+        && (!selected['owner-filter'] || work?.owner === selected['owner-filter'])
+        && (!selected['capability-filter'] || view?.binding.capabilities.includes(selected['capability-filter']))
+        && (!byId('watched').checked || watchlist.has(agent.agentId));
+    });
+    if (selected.sort === 'work') matching.sort((a, b) => {
+      const key = agent => { const work = workViews.get(agent.agentId)?.work;
+        return work?.workId ? `${work.project ?? ''}\u0000${work.workId}` : '\uffff'; };
+      return compare(key(a), key(b)) || compare(a.label, b.label) || compare(a.agentId, b.agentId);
+    });
     page = Math.max(0, Math.min(page, Math.ceil(matching.length / 50) - 1));
     byId('matching').textContent = snapshot ? `${matching.length} matching of ${agents.length} registered` : 'Counts unavailable';
     byId('page').textContent = snapshot ? `Page ${page + 1} of ${Math.max(1, Math.ceil(matching.length / 50))}` : 'Page unavailable';
@@ -174,10 +244,21 @@ export function mountDashboard(doc, win) {
     for (const [index, a] of visible.entries()) {
       let card = cards.get(a.agentId);
       if (!card) { card = makeCard(); cards.set(a.agentId, card); }
+      card.agent = a;
+      card.inspect.setAttribute('aria-label', `Inspect runtime ${shortIds.get(a.agentId)}`);
       card.title.textContent = a.label;
       card.summary.setAttribute('aria-label', `Runtime details for ${shortIds.get(a.agentId)}`);
       card.identity.textContent = `${a.host} · ${shortIds.get(a.agentId)}`;
       card.session.textContent = a.sessionName;
+      const reported = workViews.get(a.agentId)?.work;
+      card.objective.textContent = reported?.objective ?? 'Work not reported';
+      card.phase.textContent = reported ? `${reported.project ?? 'Project not reported'} · ${reported.phase ?? 'phase unknown'}${reported.currentStep ? ` · ${reported.currentStep}` : ''}` : 'Presence-only context';
+      const last = lastEvents.get(a.agentId);
+      if (last) {
+        const age = BigInt(Math.floor(Date.now() / 1000)) - BigInt(last.observedAt);
+        const when = age < 0n ? 'clock difference' : age < 60n ? `${age}s ago` : age < 3600n ? `${age / 60n}m ago` : `${age / 3600n}h ago`;
+        card.meaningful.textContent = `Last observed ${last.kind}: ${when} · ${last.source.replaceAll('_', ' ')}`;
+      } else card.meaningful.textContent = 'Meaningful event history not observed.';
       card.model.textContent = modelText(a);
       card.status.textContent = a.status === 'busy' ? 'Busy' : 'Idle';
       card.receiving.textContent = a.receiving ? 'Receiving' : 'Not receiving';
@@ -195,6 +276,38 @@ export function mountDashboard(doc, win) {
   }
   function render(state) {
     current = state;
+    observedAgents = new Map((state.snapshot?.agents ?? []).map(agent => [agent.agentId, agent]));
+    for (const id of lastEvents.keys()) if (!observedAgents.has(id)) lastEvents.delete(id);
+    consoleView.setConnected(state.connected);
+    consoleView.enableObservation(Boolean(state.connected && state.snapshot));
+    consoleView.updateAgents(state.snapshot?.agents ?? [], Boolean(state.snapshot));
+    workViews = new Map((state.workSnapshot?.epoch === state.snapshot?.epoch ? state.workSnapshot?.views ?? [] : []).map(v => [v.binding.agentId, v]));
+    for (const agent of state.snapshot?.agents ?? []) {
+      if (workViews.get(agent.agentId)?.binding.sessionId !== agent.sessionId) workViews.delete(agent.agentId);
+    }
+    byId('attention-status').textContent = !state.connected ? 'Disconnected. Work reports cleared.'
+      : state.workLoading ? 'Reading complete work reports. Any displayed work is from the previous snapshot.' : state.workError
+        || (state.workSnapshot ? 'Explicit client reports, not inferred progress or verified completion.' : 'Work reports have not been read.');
+    const needs = (state.snapshot?.agents ?? []).filter(a => {
+      const w = workViews.get(a.agentId)?.work; return w?.blocker || w?.phase === 'failed';
+    });
+    const activeIds = new Set(needs.map(a => a.agentId));
+    for (const [id, row] of attentionRows) if (!activeIds.has(id)) { row.remove(); attentionRows.delete(id); }
+    for (const agent of needs) {
+      let row = attentionRows.get(agent.agentId);
+      if (!row) {
+        row = element('button'); row.type = 'button';
+        row.addEventListener('click', () => {
+          const currentAgent = current.snapshot?.agents.find(a => a.agentId === agent.agentId);
+          if (currentAgent) consoleView.selectRuntime(currentAgent);
+        });
+        attentionRows.set(agent.agentId, row); byId('attention-list').append(row);
+      }
+      const work = workViews.get(agent.agentId).work;
+      row.textContent = `${agent.label} · ${work.blocker?.kind === 'decision' ? 'Decision requested' : work.blocker ? 'Reported blocker' : 'Reported failure'}: ${work.blocker?.reason ?? work.objective ?? 'Outcome evidence not supplied'}`;
+    }
+    byId('attention-empty').hidden = !state.workSnapshot || needs.length !== 0;
+    byId('attention-empty').textContent = 'No explicit blockers or failures in these reports. This does not establish that unreported work is healthy.';
     if (displayedSnapshot !== state.snapshot) {
       displayedSnapshot = state.snapshot;
       shortIds = displayIds(state.snapshot?.agents ?? []);
@@ -228,7 +341,26 @@ export function mountDashboard(doc, win) {
       byId('host').value = state.snapshot ? selectedHost : '';
       hostOptions = hosts;
     }
+    for (const [id, title, values] of [
+      ['project', 'All projects', [...workViews.values()].map(v => v.work.project)],
+      ['work-filter', 'All work items', [...workViews.values()].map(v => v.work.workId)],
+      ['model-filter', 'All models', (state.snapshot?.agents ?? []).map(modelText)],
+      ['owner-filter', 'All owners', [...workViews.values()].map(v => v.work.owner)],
+      ['capability-filter', 'Any capability', [...workViews.values()].flatMap(v => v.binding.capabilities)],
+    ]) {
+      const select = byId(id), selected = select.value;
+      const options = [...new Set(values.filter(v => typeof v === 'string'))].sort(compare);
+      if (selected && state.snapshot && !options.includes(selected)) options.push(selected);
+      const key = JSON.stringify(options);
+      if (optionCache.get(id) !== key) {
+        const all = element('option', title); all.value = '';
+        select.replaceChildren(all);
+        for (const value of options) { const option = element('option', value); option.value = value; select.append(option); }
+        select.value = state.snapshot ? selected : ''; optionCache.set(id, key);
+      }
+    }
     if (!state.connected) {
+      watchlist.clear(); lastEvents.clear(); observedEpoch = null; byId('watched').checked = false;
       for (const id of filterIds) byId(id).value = id === 'sort' ? 'label' : '';
       page = 0;
     }
@@ -236,7 +368,7 @@ export function mountDashboard(doc, win) {
     if (!state.connected && wasConnected) byId('reconnect').focus();
     wasConnected = state.connected;
   }
-  controller = createController({ render, hidden: doc.hidden });
+  controller = createController({ operator, render, hidden: doc.hidden });
   byId('refresh').addEventListener('click', () => { void controller.refresh(); });
   byId('disconnect').addEventListener('click', () => { controller.disconnect(); });
   byId('reconnect').addEventListener('click', () => { void controller.connect(); });
@@ -246,13 +378,17 @@ export function mountDashboard(doc, win) {
     if (id === 'search') byId(id).value = byId(id).value.slice(0, 200);
     page = 0; renderRows();
   });
+  byId('watched').addEventListener('change', () => { page = 0; renderRows(); });
   byId('clear-filters').addEventListener('click', () => {
+    byId('watched').checked = false;
     for (const id of filterIds) byId(id).value = id === 'sort' ? 'label' : '';
     page = 0; renderRows(); byId('search').focus();
   });
   byId('previous').addEventListener('click', () => { page -= 1; renderRows(); });
   byId('next').addEventListener('click', () => { page += 1; renderRows(); });
-  doc.addEventListener('visibilitychange', () => controller.setHidden(doc.hidden));
+  doc.addEventListener('visibilitychange', () => {
+    controller.setHidden(doc.hidden); consoleView.setHidden(doc.hidden);
+  });
   win.addEventListener('pagehide', () => { controller.disconnect(); });
   win.addEventListener('pageshow', (event) => { if (event.persisted) controller.disconnect(); });
   const network = () => { byId('network').hidden = win.navigator.onLine !== false; };

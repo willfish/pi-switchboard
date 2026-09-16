@@ -7,6 +7,21 @@
 -define(S2, <<"22222222-2222-4222-8222-222222222222">>).
 -define(MID, <<"33333333-3333-4333-8333-333333333333">>).
 
+tagged_acceptance_distinguishes_enqueue_from_duplicate_test() ->
+    S0 = two_agents(100),
+    Msg = notice(?A, ?B),
+    {ok, new, S1, Accepted} = bus_model:accept_mail_tagged(S0, Msg, 100, 50),
+    ?assertEqual({ok, duplicate, S1, Accepted}, bus_model:accept_mail_tagged(S1, Msg, 101, 51)),
+    ?assertEqual({ok, S1, Accepted}, bus_model:accept_mail(S0, Msg, 100, 50)),
+    ?assertEqual({ok, S1, Accepted}, bus_model:accept_mail(S1, Msg, 101, 51)),
+    ?assertEqual({error, conflict}, bus_model:accept_mail_tagged(S1, Msg#{<<"body">> := <<"different">>}, 101, 51)).
+
+tagged_duplicate_keeps_dedup_before_liveness_test() ->
+    Msg = notice(?A, ?B),
+    {ok, new, S1, Accepted} = bus_model:accept_mail_tagged(two_agents(100), Msg, 100, 50),
+    Expired = bus_model:expire(S1, 115),
+    ?assertEqual({ok, duplicate, Expired, Accepted}, bus_model:accept_mail_tagged(Expired, Msg, 115, 65)).
+
 upsert_and_list_test() ->
     S0 = bus_model:new(),
     {ok, S1} = bus_model:put_agent(S0, agent(?A, ?S1, false), 100, 1_700_000_000),
@@ -398,3 +413,47 @@ dedup_precedes_mailbox_control_and_presence_test() ->
 
 uuid_n(N) ->
     iolist_to_binary(io_lib:format("33333333-3333-4333-8333-~12.16.0b", [N])).
+
+registration_generation_stable_on_heartbeat_test() ->
+    {ok, S1} = bus_model:put_agent(bus_model:new(), agent(?A, ?S1, false), 100, 50),
+    {ok, 1, ?S1} = bus_model:registration(S1, ?A, 100),
+    {ok, S2} = bus_model:put_agent(S1, agent(?A, ?S1, true), 101, 51),
+    {ok, 1, ?S1} = bus_model:registration(S2, ?A, 101),
+    ?assertEqual(2, maps:get(next_registration, S2)).
+
+registration_new_after_delete_and_expiry_test() ->
+    {ok, S1} = bus_model:put_agent(bus_model:new(), agent(?A, ?S1, false), 100, 50),
+    {ok, 1, ?S1} = bus_model:registration(S1, ?A, 100),
+    SDel = bus_model:delete_agent(S1, ?A),
+    {ok, S2} = bus_model:put_agent(SDel, agent(?A, ?S1, false), 100, 50),
+    {ok, 2, ?S1} = bus_model:registration(S2, ?A, 100),
+    {ok, S3} = bus_model:put_agent(bus_model:new(), agent(?A, ?S1, false), 100, 50),
+    Expired = bus_model:expire(S3, 115),
+    {ok, S4} = bus_model:put_agent(Expired, agent(?A, ?S1, false), 115, 65),
+    {ok, 2, ?S1} = bus_model:registration(S4, ?A, 115).
+
+same_session_different_runtime_distinct_generations_test() ->
+    {ok, S1} = bus_model:put_agent(bus_model:new(), agent(?A, ?S1, false), 100, 50),
+    {ok, S2} = bus_model:put_agent(S1, agent(?B, ?S1, false), 100, 50),
+    {ok, 1, ?S1} = bus_model:registration(S1, ?A, 100),
+    {ok, 2, ?S1} = bus_model:registration(S2, ?B, 100),
+    {ok, 1, ?S1} = bus_model:registration(S2, ?A, 100).
+
+legacy_public_agent_hides_generation_test() ->
+    {ok, S1} = bus_model:put_agent(bus_model:new(),
+        (agent(?A, ?S1, false))#{<<"registrationGeneration">> => 99, registrationGeneration => 99},
+        100, 50),
+    {ok, 1, ?S1} = bus_model:registration(S1, ?A, 100),
+    [Doc] = bus_model:list_agents(S1, 100, 50),
+    ?assertEqual(false, maps:is_key(<<"registrationGeneration">>, Doc)),
+    ?assertEqual(false, maps:is_key(registrationGeneration, Doc)),
+    Stored = maps:get(?A, maps:get(agents, S1)),
+    ?assertEqual(1, maps:get(registrationGeneration, Stored)).
+
+registration_counter_exhaustion_allows_renewal_test() ->
+    {ok, S1} = bus_model:put_agent(bus_model:new(), agent(?A, ?S1, false), 100, 50),
+    Full = S1#{next_registration => 18446744073709551616},
+    ?assertEqual({error, capacity}, bus_model:put_agent(Full, agent(?B, ?S2, false), 100, 50)),
+    {ok, Renewed} = bus_model:put_agent(Full, agent(?A, ?S1, false), 101, 51),
+    {ok, 1, ?S1} = bus_model:registration(Renewed, ?A, 101),
+    ?assertEqual({error, not_found}, bus_model:registration(Full, ?B, 100)).

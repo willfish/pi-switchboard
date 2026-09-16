@@ -10,7 +10,9 @@
     pop_mail/2, pop_mail/3,
     subscribe/2, subscribe/3,
     unsubscribe/2,
-    pull_presence/2, pull_presence/3
+    pull_presence/2, pull_presence/3,
+    operator_registration/1, operator_registration/2, operator_registration/3,
+    operator_registrations/1, operator_registrations/2
 ]).
 
 -export([
@@ -64,6 +66,24 @@ unsubscribe(AgentId, Ref) ->
 pull_presence(AgentId, Ref) -> pull_presence(AgentId, Ref, deadline()).
 pull_presence(AgentId, Ref, Deadline) ->
     call({subscription, AgentId, Ref, pull_presence}, Deadline).
+
+operator_registration(AgentId) -> operator_registration(AgentId, deadline()).
+operator_registration(AgentId, Deadline) when is_binary(AgentId), is_integer(Deadline) ->
+    call({operator_registration, AgentId}, Deadline).
+operator_registration(Pid, AgentId, Deadline)
+  when is_pid(Pid), is_binary(AgentId), is_integer(Deadline) ->
+    case Deadline - erlang:monotonic_time(millisecond) of
+        Remaining when Remaining =< 0 -> {error, timeout};
+        _ -> admit(Pid, {operator_registration, AgentId}, Deadline)
+    end.
+
+operator_registrations(Deadline) when is_integer(Deadline) ->
+    call(operator_registrations, Deadline).
+operator_registrations(Pid, Deadline) when is_pid(Pid), is_integer(Deadline) ->
+    case Deadline - erlang:monotonic_time(millisecond) of
+        Remaining when Remaining =< 0 -> {error, timeout};
+        _ -> admit(Pid, operator_registrations, Deadline)
+    end.
 
 deadline() -> erlang:monotonic_time(millisecond) + ?CALL_TIMEOUT_MS.
 
@@ -179,12 +199,13 @@ run_caller_op({list_agents_page, Cursor}, _Pid, Deadline, State, {Mono, Wall}) -
 run_caller_op(Op, _Pid, _Deadline, State, Clock) ->
     do_op(Op, State, Clock).
 
-do_sub_op(pop_mail, AgentId, _Deadline, State, {Mono, _Wall}) ->
+do_sub_op(pop_mail, AgentId, _Deadline, State, {Mono, _Wall} = Clock) ->
     case bus_model:pop_mail(maps:get(model, State), AgentId, Mono) of
         {empty, Model1} ->
             %% Empty observation and rearm must share this store transition.
             {{empty, undefined}, clear_wake(State#{model := Model1}, AgentId, mail_wake)};
         {ok, Model1, Msg} ->
+            observe_dispatch(Msg, Clock),
             {{ok, bus_model:public_mail(Msg)}, State#{model := Model1}}
     end;
 do_sub_op(pull_presence, AgentId, Deadline, State, {Mono, Wall}) ->
@@ -212,6 +233,31 @@ do_op({put_agent, Agent}, State, {Mono, Wall} = Clock) ->
         {error, Reason} ->
             {{error, Reason}, State}
     end;
+do_op({operator_registration, AgentId}, State, {Mono, _Wall}) ->
+    case bus_model:registration(maps:get(model, State), AgentId, Mono) of
+        {ok, Gen, SessionId} ->
+            {{ok, #{epoch => maps:get(epoch, maps:get(discovery, State)),
+                    registrationGeneration => Gen,
+                    agentId => AgentId,
+                    sessionId => SessionId}}, State};
+        {error, not_found} ->
+            {{error, not_found}, State}
+    end;
+do_op(operator_registrations, State, {Mono, Wall}) ->
+    Epoch = maps:get(epoch, maps:get(discovery, State)),
+    Model = maps:get(model, State),
+    Ids = maps:keys(maps:get(agents, Model)),
+    Regs = lists:foldl(fun(Id, Acc) ->
+        case bus_model:registration(Model, Id, Mono) of
+            {ok, Gen, SessionId} ->
+                Acc#{Id => #{epoch => Epoch, registrationGeneration => Gen,
+                    agentId => Id, sessionId => SessionId}};
+            _ -> Acc
+        end
+    end, #{}, Ids),
+    {{ok, #{epoch => Epoch, capturedAt => Wall,
+            revision => maps:get(revision, maps:get(discovery, State)),
+            registrations => Regs}}, State};
 do_op({delete_agent, AgentId}, State, {Mono, _Wall} = Clock) ->
     Existed = bus_model:has_agent(maps:get(model, State), AgentId, Mono),
     Model1 = bus_model:delete_agent(maps:get(model, State), AgentId),
@@ -220,12 +266,16 @@ do_op({delete_agent, AgentId}, State, {Mono, _Wall} = Clock) ->
 do_op(list_agents, State, {Mono, Wall}) ->
     Agents = bus_model:list_agents(maps:get(model, State), Mono, Wall),
     {{ok, Agents}, State};
-do_op({accept_mail, Msg}, State, {Mono, Wall}) ->
-    case bus_model:accept_mail(maps:get(model, State), Msg, Mono, Wall) of
-        {ok, Model1, Result} ->
+do_op({accept_mail, Msg}, State, {Mono, Wall} = Clock) ->
+    case bus_model:accept_mail_tagged(maps:get(model, State), Msg, Mono, Wall) of
+        {ok, new, Model1, Result} ->
             To = maps:get(<<"to">>, Msg),
             State1 = notify_mail(State#{model := Model1}, To),
+            observe_accept(Msg, Result, Clock, State1),
             {{ok, Result}, State1};
+        {ok, duplicate, Model1, Result} ->
+            %% Returning a retained acceptance is not a new enqueue or wake.
+            {{ok, Result}, State#{model := Model1}};
         {error, Reason} ->
             {{error, Reason}, State}
     end;
@@ -342,6 +392,87 @@ wake_presence(#{pid := Pid, ref := Ref} = Sub) ->
 
 dispatch_presence(State) ->
     State#{subs := maps:map(fun(_,Sub) -> wake_presence(Sub) end,maps:get(subs,State))}.
+
+
+observe_accept(Msg, Result, Clock, State) ->
+    try
+        {_Mono, Wall} = Clock,
+        AcceptedAt = maps:get(<<"acceptedAt">>, Result, Wall),
+        From = maps:get(<<"from">>, Msg),
+        To = maps:get(<<"to">>, Msg),
+        Pay0 = #{
+            <<"id">> => maps:get(<<"id">>, Msg),
+            <<"from">> => From,
+            <<"to">> => To,
+            <<"kind">> => maps:get(<<"kind">>, Msg),
+            <<"acceptedAt">> => AcceptedAt,
+            <<"receiving">> => maps:get(<<"receiving">>, Result, false),
+            <<"bodyBytes">> => body_bytes(Msg)
+        },
+        Pay = maybe_mail_body(Pay0, Msg, State, From, To),
+        observe(#{
+            <<"kind">> => <<"mail_accepted">>,
+            <<"source">> => <<"relay_observed">>,
+            <<"agentId">> => To,
+            <<"threadId">> => maps:get(<<"id">>, Msg),
+            <<"occurredAt">> => AcceptedAt,
+            <<"payload">> => Pay
+        })
+    catch
+        _:_ -> ok
+    end.
+
+maybe_mail_body(Pay, Msg, State, From, To) ->
+    FromGen = registration_gen(State, From),
+    ToGen = registration_gen(State, To),
+    case is_integer(FromGen) andalso is_integer(ToGen)
+            andalso bus_operator_history:granted(self(), From, FromGen)
+            andalso bus_operator_history:granted(self(), To, ToGen) of
+        true ->
+            case maps:get(<<"body">>, Msg, undefined) of
+                Bin when is_binary(Bin), byte_size(Bin) > 0, byte_size(Bin) =< 16384 ->
+                    Pay#{<<"body">> => Bin};
+                _ -> Pay
+            end;
+        false -> Pay
+    end.
+
+registration_gen(State, AgentId) ->
+    case maps:find(AgentId, maps:get(agents, maps:get(model, State), #{})) of
+        {ok, Agent} -> maps:get(registrationGeneration, Agent, undefined);
+        error -> undefined
+    end.
+
+observe_dispatch(Msg, Clock) ->
+    try
+        {_Mono, Wall} = Clock,
+        observe(#{
+            <<"kind">> => <<"mail_dispatched">>,
+            <<"source">> => <<"relay_observed">>,
+            <<"agentId">> => maps:get(<<"to">>, Msg),
+            <<"threadId">> => maps:get(<<"id">>, Msg),
+            <<"occurredAt">> => Wall,
+            <<"payload">> => #{
+                <<"id">> => maps:get(<<"id">>, Msg),
+                <<"from">> => maps:get(<<"from">>, Msg),
+                <<"to">> => maps:get(<<"to">>, Msg),
+                <<"kind">> => maps:get(<<"kind">>, Msg)
+            }
+        })
+    catch
+        _:_ -> ok
+    end.
+
+body_bytes(Msg) ->
+    case maps:get(<<"body">>, Msg, <<>>) of
+        Bin when is_binary(Bin) -> byte_size(Bin);
+        _ -> 0
+    end.
+
+observe(Event) ->
+    try bus_operator_journal:offer(Event)
+    catch _:_ -> ok
+    end.
 
 %% TTL, display time and discovery revisions share one operation instant.
 %% Absolute request deadlines deliberately continue to sample real milliseconds.

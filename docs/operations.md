@@ -55,7 +55,7 @@ Once enabled, open the page and it connects automatically. There is no password,
 
 Disconnect and clear stops this view and clears its private state while attempting bounded server invalidation. Reconnect is credential-free while network access remains permitted, so this is not a security lock or permanent access revocation. Other tabs have independent sessions. No operator credentials are stored in URLs, cookies or browser storage. Existing tailnet HTTP relies on VPN transport protection, not browser HTTPS guarantees.
 
-The dashboard reads discovery pages without registering a runtime, opening an agent event stream or consuming messages. It has no send, steer, delete or consent controls. Inbox contents, human-read state, delivery receipts and historical activity are not available here.
+Observation uses independent bounded history/search/stream APIs, never agent registration or consuming `/v1/events`. The console exposes typed work, message, session, label and interrupt operations only when the receiver advertises their capability and grants the corresponding local permission. It cannot grant its own consent, run arbitrary shell commands or kill a process. See the [console guide](operator-console.md) for permission scopes, content enrollment and action-specific outcomes.
 
 Summary counts describe the entire successfully read snapshot, while search and filters narrow the visible rows. One row is one running Pi identity, not a person or saved session. Labels/activity are client reports; receiving means the hub observes a subscription, not confirmed delivery. Details expose full identifiers, cwd and the last registration timestamp for disambiguation. Reported peer-control permission is not a grant of operator management capabilities.
 

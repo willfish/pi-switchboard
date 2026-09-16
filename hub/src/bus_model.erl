@@ -7,10 +7,12 @@
     expire/2,
     list_agents/3,
     accept_mail/4,
+    accept_mail_tagged/4,
     pop_mail/3,
     set_receiving/3,
     public_mail/1,
-    has_agent/3, public_agent/2
+    has_agent/3, public_agent/2,
+    registration/3
 ]).
 
 -define(MAX_AGENTS, 5000).
@@ -30,7 +32,8 @@ new() ->
         %% Internal state only, not a runtime configuration interface.
         queue_byte_limit => ?MAX_QUEUED_BYTES,
         dedup => #{},
-        receiving => #{}
+        receiving => #{},
+        next_registration => 1
     }.
 
 put_agent(State, Agent, MonoNow, WallNow)
@@ -44,14 +47,27 @@ put_agent(State, Agent, MonoNow, WallNow)
         true ->
             {error, capacity};
         false ->
-            State1 =
-                case Exists of
-                    true -> State;
-                    false -> delete_agent(State, Id)
-                end,
-            Stored = Agent#{last_mono => MonoNow, last_wall => WallNow},
-            Agents1 = maps:get(agents, State1),
-            {ok, State1#{agents => Agents1#{Id => Stored}}}
+            Public = maps:without([<<"registrationGeneration">>, registrationGeneration], Agent),
+            case Exists of
+                true ->
+                    Old = maps:get(Id, Agents0),
+                    Gen = maps:get(registrationGeneration, Old),
+                    Stored = Public#{last_mono => MonoNow, last_wall => WallNow,
+                        registrationGeneration => Gen},
+                    {ok, State#{agents => Agents0#{Id => Stored}}};
+                false ->
+                    Next = maps:get(next_registration, State),
+                    case Next > 18446744073709551615 of
+                        true -> {error, capacity};
+                        false ->
+                            State1 = delete_agent(State, Id),
+                            Stored = Public#{last_mono => MonoNow, last_wall => WallNow,
+                                registrationGeneration => Next},
+                            Agents1 = maps:get(agents, State1),
+                            {ok, State1#{agents => Agents1#{Id => Stored},
+                                next_registration => Next + 1}}
+                    end
+            end
     end.
 
 delete_agent(State, AgentId) when is_binary(AgentId) ->
@@ -87,6 +103,14 @@ list_agents(State, MonoNow, WallNow) when is_integer(MonoNow), is_integer(WallNo
     ].
 
 accept_mail(State, Msg, MonoNow, WallNow) ->
+    case accept_mail_tagged(State, Msg, MonoNow, WallNow) of
+        {ok, _Kind, Next, Result} -> {ok, Next, Result};
+        Error -> Error
+    end.
+
+%% Observation needs an explicit enqueue outcome, not inference from model
+%% equality. Keep the established caller/wire result unchanged above.
+accept_mail_tagged(State, Msg, MonoNow, WallNow) ->
     From = maps:get(<<"from">>, Msg),
     Id = maps:get(<<"id">>, Msg),
     DedupKey = {From, Id},
@@ -94,11 +118,14 @@ accept_mail(State, Msg, MonoNow, WallNow) ->
     Dedup0 = maps:get(dedup, State),
     case maps:get(DedupKey, Dedup0, undefined) of
         #{digest := Digest, result := Result, expires_mono := Exp} when MonoNow < Exp ->
-            {ok, State, Result};
+            {ok, duplicate, State, Result};
         #{digest := Other, expires_mono := Exp} when Other =/= Digest, MonoNow < Exp ->
             {error, conflict};
         _ ->
-            accept_new_mail(State, Msg, MonoNow, WallNow, DedupKey, Digest)
+            case accept_new_mail(State, Msg, MonoNow, WallNow, DedupKey, Digest) of
+                {ok, Next, Result} -> {ok, new, Next, Result};
+                Error -> Error
+            end
     end.
 
 pop_mail(State, AgentId, MonoNow) ->
@@ -237,6 +264,13 @@ is_live(#{last_mono := Last}, MonoNow) ->
 
 drop_expired(Queue, MonoNow) ->
     [Item || Item <- Queue, maps:get(<<"expires_mono">>, Item) > MonoNow].
+
+registration(State, AgentId, MonoNow) when is_binary(AgentId), is_integer(MonoNow) ->
+    case live_agent(AgentId, maps:get(agents, State), MonoNow) of
+        undefined -> {error, not_found};
+        Agent ->
+            {ok, maps:get(registrationGeneration, Agent), maps:get(<<"sessionId">>, Agent)}
+    end.
 
 public_agent(Agent, Receiving) ->
     Public = maps:with(

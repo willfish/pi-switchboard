@@ -19,7 +19,7 @@ it("factory binds the exact commands/tools and no network, clocks, UUID, hostnam
   const sdk = host(); const fail = () => { throw Error("factory effect"); };
   createAgentBusExtension({ pi: sdk.pi, env: { PI_AGENT_BUS_TOKEN: "synthetic" }, fetch: fail, uuid: fail, hostname: fail, now: fail, timers: { setTimeout: fail, clearTimeout: fail } });
   assert.deepEqual([...sdk.commands.keys()].sort(), ["agents", "bus", "label", "tell"]);
-  assert.deepEqual([...sdk.tools.keys()].sort(), ["list_agents", "send_agent_message", "set_agent_label"]);
+  assert.deepEqual([...sdk.tools.keys()].sort(), ["list_agents", "report_work", "send_agent_message", "set_agent_label"]);
   assert.ok(sdk.events.has("agent_settled")); assert.ok(!sdk.events.has("agent_end")); assert.ok(!sdk.events.has("session_switch"));
 });
 
@@ -189,6 +189,7 @@ for (const boundary of ["replacement", "cancel"] as const) it(`list tool fences 
 for (const outcome of ["accepted", "rejected", "outcome_unknown"] as const) it(`send tool preserves observed ${outcome} after replacement`, async () => {
   let posts = 0;
   const f = fixture({ fetch: async (_url: string, init: any) => {
+    if (_url.endsWith('/v1/operator/announce')) return response(404, {});
     if (init.method === "GET") return discovery();
     if (init.method !== "POST") return response();
     posts++;
@@ -269,6 +270,7 @@ it("late command completion cannot notify an old context even with a reused inje
 it("discovery-to-POST is fenced against replacement; late discovery cannot replace the cache", async () => {
   const pending = Promise.withResolvers<ReturnType<typeof response>>(); let posts = 0; let sequence = 0;
   const f = fixture({ uuid: () => sequence++ === 0 ? agentA : agentB, fetch: async (_url: string, init: any) => {
+    if (_url.endsWith('/v1/operator/announce')) return response(404, {});
     if (init.method === "POST") posts++;
     return init.method === "GET" ? pending.promise : response();
   } });

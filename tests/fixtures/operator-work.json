@@ -1,0 +1,61 @@
+{
+  "allNull": {
+    "workId": null,
+    "objective": null,
+    "phase": null,
+    "currentStep": null,
+    "nextStep": null,
+    "owner": null,
+    "blocker": null,
+    "project": null,
+    "repository": null,
+    "branch": null,
+    "worktree": null,
+    "parentWorkId": null,
+    "delegatedWorkId": null,
+    "evidence": []
+  },
+  "populated": {
+    "workId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "objective": "Ship the operator work snapshot codec",
+    "phase": "implementing",
+    "currentStep": "write shared fixture",
+    "nextStep": "round-trip Erlang and TypeScript",
+    "owner": "william",
+    "blocker": {
+      "kind": "decision",
+      "reason": "Need explicit enrollment before storing bodies"
+    },
+    "project": "pi-switchboard",
+    "repository": "pi-switchboard-console",
+    "branch": "main",
+    "worktree": "/tmp/work",
+    "parentWorkId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "delegatedWorkId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "evidence": [
+      { "kind": "file", "ref": "extension/operator-protocol.ts" },
+      { "kind": "test", "ref": "tests/operator-protocol.test.ts" }
+    ]
+  },
+  "hostile": {
+    "workId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    "objective": "<script>alert(1)</script> & \"quotes\" \u00a3 <img src=x onerror=alert(1)>",
+    "phase": "waiting",
+    "currentStep": "literal <b>not html</b>",
+    "nextStep": "keep the bytes",
+    "owner": "<root>",
+    "blocker": {
+      "kind": "blocked",
+      "reason": "'; DROP TABLE work; --"
+    },
+    "project": "x\"y",
+    "repository": "../etc/passwd",
+    "branch": "feat/\"quotes\"",
+    "worktree": "C:\\windows\\system32",
+    "parentWorkId": null,
+    "delegatedWorkId": null,
+    "evidence": [
+      { "kind": "artifact", "ref": "javascript:alert(1)" }
+    ]
+  }
+}

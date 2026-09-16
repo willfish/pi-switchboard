@@ -1,4 +1,6 @@
 import type { Agent, SendKind, SendOutcome } from "./protocol.ts";
+import { isAnnouncement, isBindingFor, type OperatorAnnouncement, type OperatorBinding } from './operator-binding.ts';
+import { isRequests, isOperationAck, isDescriptor, type OperationDescriptor, type OperationReport, type ToolActivity } from './operator-operations.ts';
 import { isUuid, decodeWireJson, isDiscoveryPage, sameSnapshot, MAX_DISCOVERY_BYTES,
   MAX_STAGE_BYTES, MAX_AGENTS, DISCOVERY_LIFETIME_MS, exactKeys, isUnsignedInteger,
   isMessageFields, MAX_ENVELOPE_BYTES, type DiscoveryPage } from "./protocol.ts";
@@ -31,7 +33,13 @@ export const defaultTimers: Timers = {
   setTimeout: (callback, delay) => setTimeout(callback, delay),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
+export type AnnounceOutcome = { status: 'ok'; binding: OperatorBinding } | { status: 'unsupported' } | SendOutcome;
 export type HubClient = {
+  announce?(document: OperatorAnnouncement, signal?: AbortSignal): Promise<AnnounceOutcome>;
+  operatorActivity?(binding: OperatorBinding, events: ToolActivity[], dropped: string, signal?: AbortSignal): Promise<{ status: 'ok'; accepted: number } | SendOutcome>;
+  operatorRequests?(agentId: string, signal?: AbortSignal): Promise<{ status: 'ok'; requests: OperationDescriptor[] } | SendOutcome | { status: 'unsupported' }>;
+  operatorContent?(descriptor: OperationDescriptor, signal?: AbortSignal): Promise<{ status: 'ok'; body: string } | SendOutcome>;
+  operatorReport?(report: OperationReport, signal?: AbortSignal): Promise<{ status: 'ok'; state: string } | SendOutcome>;
   isUnauthorized(): boolean;
   putAgent(agent: Record<string, unknown>, signal?: AbortSignal): Promise<SendOutcome | { status: "ok" }>;
   deleteAgent(agentId: string, signal?: AbortSignal): Promise<void>;
@@ -53,7 +61,7 @@ export function createHubClient(opts: {
   timeoutMs?: number;
   timers?: Timers;
   onUnauthorized?: () => void;
-}): HubClient {
+}): HubClient & { announce: NonNullable<HubClient['announce']> } {
   const timers = opts.timers ?? defaultTimers;
   let unauthorized = false;
   function latchUnauthorized() {
@@ -68,7 +76,7 @@ export function createHubClient(opts: {
     accept: "application/json",
   };
 
-  async function request(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<
+  async function request(method: string, path: string, body?: unknown, signal?: AbortSignal, responseLimit = MAX_ENVELOPE_BYTES): Promise<
     | { kind: "http"; status: number; json: unknown }
     | { kind: "unknown"; reason: string }
     | { kind: "local"; reason: string }
@@ -109,9 +117,9 @@ export function createHubClient(opts: {
       check();
       if (res.status >= 300 && res.status < 400) throw Error("redirect refused");
       const length = res.headers.get("content-length");
-      if (length !== null && (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > MAX_ENVELOPE_BYTES)) throw Error("invalid response");
+      if (length !== null && (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) > responseLimit)) throw Error("invalid response");
       let bytes = 0;
-      const buffer = new Uint8Array(MAX_ENVELOPE_BYTES);
+      const buffer = new Uint8Array(responseLimit);
       if (res.body) {
         reader = res.body.getReader();
         while (true) {
@@ -262,6 +270,64 @@ export function createHubClient(opts: {
           ? error.message : "discovery failed";
         return { status: "not_sent", reason };
       }
+    },
+
+    async operatorActivity(binding, events, dropped, signal) {
+      const document = { schemaVersion: 1, agentId: binding.agentId, bindingId: binding.bindingId,
+        runtimeGeneration: binding.runtimeGeneration, sessionGeneration: binding.sessionGeneration, events, dropped };
+      const result = await request('POST', '/v1/operator/activity', document, signal, 2048);
+      if (result.kind === 'http' && result.status === 200 && exactKeys(result.json, ['schemaVersion', 'accepted'])
+        && result.json.schemaVersion === 1 && Number.isSafeInteger(result.json.accepted)
+        && (result.json.accepted as number) >= 0 && (result.json.accepted as number) <= events.length)
+        return { status: 'ok', accepted: result.json.accepted as number };
+      return { status: 'outcome_unknown', reason: 'Activity report outcome unknown.' };
+    },
+    async operatorRequests(agentId, signal) {
+      if (!isUuid(agentId)) return { status: 'not_sent', reason: 'invalid runtime' };
+      const result = await request('GET', `/v1/operator/requests?agentId=${agentId}`, undefined, signal, 16384);
+      if (result.kind === 'http' && result.status === 200 && isRequests(result.json, agentId))
+        return { status: 'ok', requests: result.json.requests };
+      if (result.kind === 'http' && [404, 405].includes(result.status)) return { status: 'unsupported' };
+      return { status: 'not_sent', reason: result.kind === 'http' && result.status === 401 ? 'unauthorized' : 'operator requests unavailable' };
+    },
+    async operatorContent(descriptor, signal) {
+      if (!isDescriptor(descriptor)) return { status: 'not_sent', reason: 'invalid operation descriptor' };
+      const result = await request('GET', `/v1/operator/content?operationId=${descriptor.operationId}&contentId=${descriptor.content.contentId}`, undefined, signal);
+      if (result.kind === 'http' && result.status === 200 && exactKeys(result.json, ['schemaVersion', 'operationId', 'contentId', 'body'])) {
+        const doc = result.json;
+        if (doc.schemaVersion === 1 && doc.operationId === descriptor.operationId && doc.contentId === descriptor.content.contentId
+          && typeof doc.body === 'string' && new TextEncoder().encode(doc.body).length === Number(descriptor.content.bytes))
+          return { status: 'ok', body: doc.body };
+      }
+      return { status: 'not_sent', reason: result.kind === 'http' && result.status === 401 ? 'unauthorized' : 'operator content unavailable' };
+    },
+    async operatorReport(report, signal) {
+      if (!isUuid(report.operationId) || !isUuid(report.agentId) || !isUuid(report.bindingId)) return { status: 'not_sent', reason: 'invalid operation report' };
+      const result = await request('POST', '/v1/operator/results', report, signal, 2048);
+      if (result.kind === 'http' && result.status === 200 && isOperationAck(result.json, report.operationId))
+        return { status: 'ok', state: result.json.state };
+      if (result.kind === 'local') return { status: 'not_sent', reason: result.reason };
+      if (result.kind === 'http' && [400, 401, 403, 404, 409, 413, 429, 503].includes(result.status))
+        return { status: 'rejected', reason: result.status === 401 ? 'unauthorized' : 'operator report rejected' };
+      return { status: 'outcome_unknown', reason: 'Operator report outcome unknown.' };
+    },
+
+    async announce(document, signal) {
+      if (!isAnnouncement(document)) return { status: 'not_sent', reason: 'invalid operator announcement' };
+      const sent: OperatorAnnouncement = JSON.parse(JSON.stringify(document));
+      const result = await request('POST', '/v1/operator/announce', sent, signal);
+      if (result.kind === 'local') return { status: 'not_sent', reason: result.reason };
+      if (result.kind === 'unknown') return { status: 'outcome_unknown', reason: 'Operator binding outcome unknown.' };
+      if (result.status === 200 && isBindingFor(result.json, sent)) return { status: 'ok', binding: result.json };
+      if (result.status === 404 || result.status === 405) return { status: 'unsupported' };
+      if ([400, 401, 403, 409, 413, 429, 503].includes(result.status)) {
+        const doc = result.json;
+        const code = exactKeys(doc, ['error']) && exactKeys(doc.error, ['code', 'message'])
+          && typeof doc.error.code === 'string' && typeof doc.error.message === 'string'
+          && ['epoch_reset', 'stale_generation', 'conflict', 'capacity'].includes(doc.error.code) ? doc.error.code : null;
+        return { status: 'rejected', reason: result.status === 401 ? 'unauthorized' : code ?? `operator http ${result.status}` };
+      }
+      return { status: 'outcome_unknown', reason: 'Invalid operator binding response.' };
     },
 
     async send(msg, signal) {

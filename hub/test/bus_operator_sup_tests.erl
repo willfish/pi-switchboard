@@ -59,6 +59,10 @@ cleanup(#{pid := Pid, old_access := OldAccess, old_token := OldToken}) ->
     case whereis(bus_store) of undefined -> ok; S -> catch gen_server:stop(S) end,
     case whereis(bus_operator_auth) of undefined -> ok; A -> catch gen_server:stop(A) end,
     case whereis(bus_operator_http_gate) of undefined -> ok; G -> catch gen_server:stop(G) end,
+    case whereis(bus_operator_journal) of undefined -> ok; J -> catch gen_server:stop(J) end,
+    case whereis(bus_operator_native) of undefined -> ok; N -> catch gen_server:stop(N) end,
+    case whereis(bus_operator_ops) of undefined -> ok; O -> catch gen_server:stop(O) end,
+    case whereis(bus_operator_activity) of undefined -> ok; Act -> catch gen_server:stop(Act) end,
     restore_env(operator_access, OldAccess),
     restore_env(token, OldToken),
     ok.
@@ -148,6 +152,10 @@ children_include_transient_operator_after_listener() ->
     {ListenerId, Listener, supervisor, _} = lists:keyfind(ListenerId, 1, Children),
     ?assert(is_pid(Listener)),
     ?assert(is_pid(whereis(bus_operator_auth))),
+    ?assert(is_pid(whereis(bus_operator_journal))),
+    ?assert(is_pid(whereis(bus_operator_native))),
+    ?assert(is_pid(whereis(bus_operator_ops))),
+    ?assert(is_pid(whereis(bus_operator_activity))),
     ?assert(is_pid(whereis(bus_operator_http_gate))).
 
 auth_recovers_gate_stays() ->

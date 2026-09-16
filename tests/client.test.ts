@@ -292,6 +292,7 @@ describe("extension factory", () => {
     const runtime = createAgentBusExtension({ uuid: () => agentA,
       env: { PI_AGENT_BUS_TOKEN: token, PI_AGENT_BUS_URL: baseUrl },
       fetch: async (_url, init) => {
+        if (_url.endsWith('/v1/operator/announce')) return jsonResponse(404, {});
         if (init?.method === "PUT" || init?.method === "DELETE") return jsonResponse(204, null);
         if (init?.method === "POST") { posts++; return jsonResponse(202, {}); }
         gets++;
@@ -327,6 +328,7 @@ describe("extension factory", () => {
         const runtime = createAgentBusExtension({ uuid: () => agentA,
           env: { PI_AGENT_BUS_TOKEN: token, PI_AGENT_BUS_URL: baseUrl },
           fetch: async (url, init) => {
+            if (url.endsWith('/v1/operator/announce')) return jsonResponse(404, {});
             if (init?.method === "PUT" || init?.method === "DELETE") return jsonResponse(204, null);
             if (init?.method === "POST") { posts++; return jsonResponse(202, {}); }
             assert.equal(init?.method, "GET");
@@ -392,6 +394,7 @@ describe("extension factory", () => {
       cwd: () => "/tmp",
       env: { PI_AGENT_BUS_TOKEN: token, PI_AGENT_BUS_URL: baseUrl },
       fetch: async (_url, init) => {
+        if (_url.endsWith('/v1/operator/announce')) return jsonResponse(404, {});
         if (init?.method === "PUT") {
           return {
             status: 204,

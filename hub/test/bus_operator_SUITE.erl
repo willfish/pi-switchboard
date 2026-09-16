@@ -1,13 +1,19 @@
 -module(bus_operator_SUITE).
 -export([all/0, groups/0, init_per_suite/1, end_per_suite/1,
          init_per_group/2, end_per_group/2]).
+-define(A, <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>).
+-define(OP, <<"aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa">>).
+-define(OPS, <<"22222222-2222-4222-8222-222222222222">>).
 -export([disabled_keeps_legacy_token/1, loopback_session_and_presence/1,
-         gate_loss_stays_503/1]).
+         gate_loss_stays_503/1, announce_activity_and_search/1, observation_stream_delivers_and_invalidates/1, observer_capacity_preserves_core/1, slow_observer_does_not_block_core/1]).
 
-all() -> [{group, disabled}, {group, enabled}].
+all() -> [{group, disabled}, {group, enabled}, {group, gate_dead}].
 groups() ->
+    %% Gate is temporary and does not restart. Killing it must not share a
+    %% group with later dashboard session/search/stream cases.
     [{disabled, [], [disabled_keeps_legacy_token]},
-     {enabled, [], [loopback_session_and_presence, gate_loss_stays_503]}].
+     {enabled, [], [loopback_session_and_presence, announce_activity_and_search, observation_stream_delivers_and_invalidates, observer_capacity_preserves_core, slow_observer_does_not_block_core]},
+     {gate_dead, [], [gate_loss_stays_503]}].
 
 init_per_suite(Config) ->
     Old = os:getenv("PI_AGENT_BUS_OPERATOR_ACCESS"),
@@ -19,16 +25,19 @@ end_per_suite(Config) ->
 
 init_per_group(disabled, Config) ->
     Config;
-init_per_group(enabled, Config) ->
+init_per_group(Group, Config) when Group =:= enabled; Group =:= gate_dead ->
     Old = os:getenv("PI_AGENT_BUS_OPERATOR_ACCESS"),
     application:stop(pi_agent_bus),
     true = os:putenv("PI_AGENT_BUS_OPERATOR_ACCESS", "loopback"),
     {ok, _} = application:ensure_all_started(pi_agent_bus),
+    true = is_pid(whereis(bus_operator_http_gate)),
+    true = is_pid(whereis(bus_operator_activity)),
+    true = is_pid(whereis(bus_operator_native)),
     [{port, ranch:get_port(bus_http)}, {old_operator_access, Old} | Config].
 
 end_per_group(disabled, Config) ->
     Config;
-end_per_group(enabled, Config) ->
+end_per_group(_, Config) ->
     restore_access(proplists:get_value(old_operator_access, Config, false)),
     Config.
 
@@ -69,6 +78,152 @@ wait_gone(Name, N) ->
         undefined -> ok;
         _ -> timer:sleep(25), wait_gone(Name, N - 1)
     end.
+
+announce_activity_and_search(Config) ->
+    {204, _} = bus_http_SUITE:put_agent(Config, ?OP, false),
+    Doc = announce_doc(),
+    {200, RecBody} = operator_request("POST", Config, "/v1/operator/announce",
+        [{<<"content-type">>, <<"application/json">>} | bus_http_SUITE:auth()],
+        bus_protocol:encode_map(Doc)),
+    {ok, Rec} = bus_protocol:decode_json(RecBody),
+    Binding = maps:get(<<"bindingId">>, Rec),
+    true = maps:is_key(<<"activeRunId">>, Rec),
+    Act = #{<<"schemaVersion">> => 1, <<"agentId">> => ?OP, <<"bindingId">> => Binding,
+            <<"runtimeGeneration">> => <<"1">>, <<"sessionGeneration">> => <<"1">>,
+            <<"events">> => [], <<"dropped">> => <<"0">>},
+    {403, Forbid} = operator_request("POST", Config, "/v1/operator/activity",
+        [{<<"content-type">>, <<"application/json">>} | bus_http_SUITE:auth()],
+        bus_protocol:encode_map(Act)),
+    {ok, #{<<"error">> := #{<<"code">> := <<"forbidden">>}}} =
+        bus_protocol:decode_json(Forbid),
+    {200, Sess} = operator_post(Config, "/dashboard/api/v1/session", origin(Config), <<"{}">>),
+    {ok, #{<<"session">> := Hex}} = bus_protocol:decode_json(Sess),
+    H = [{<<"x-switchboard-session">>, Hex} | origin(Config)],
+    {200, Search} = operator_get(Config, "/dashboard/api/v1/search?q=nope", H),
+    {ok, Page} = bus_protocol:decode_json(Search),
+    true = is_list(maps:get(<<"events">>, Page)),
+    {400, _} = operator_get(Config, "/dashboard/api/v1/stream?x=1", H).
+
+observation_stream_delivers_and_invalidates(Config) ->
+    {200, Sess} = operator_post(Config, "/dashboard/api/v1/session", origin(Config), <<"{}">>),
+    {ok, #{<<"session">> := Hex}} = bus_protocol:decode_json(Sess),
+    Port = proplists:get_value(port, Config),
+    {ok, Sock} = gen_tcp:connect({127,0,0,1}, Port, [binary, {active,false}, {packet,raw}], 2000),
+    try
+        Request = ["GET /dashboard/api/v1/stream HTTP/1.1\r\nHost: localhost:", integer_to_list(Port),
+            "\r\nX-Switchboard-Session: ", Hex, "\r\nConnection: close\r\n\r\n"],
+        ok = gen_tcp:send(Sock, Request),
+        Data = until_contains(Sock, <<>>, <<"event: observation">>, erlang:monotonic_time(millisecond) + 2000),
+        true = binary:match(Data, <<"200">>) =/= nomatch,
+        {204, _} = operator_post(Config, "/dashboard/api/v1/disconnect",
+            [{<<"x-switchboard-session">>, Hex} | origin(Config)], <<"{}">>),
+        ok = until_closed(Sock, erlang:monotonic_time(millisecond) + 7000)
+    after gen_tcp:close(Sock) end.
+
+observer_capacity_preserves_core(Config) ->
+    Port = proplists:get_value(port, Config),
+    Bound = <<"http://localhost:", (integer_to_binary(Port))/binary>>,
+    StartMemory = erlang:memory(total), StartProcesses = erlang:system_info(process_count),
+    End = fun() -> erlang:monotonic_time(millisecond) + 5000 end,
+    Nonces = [begin
+        {ok, Nonce} = bus_operator_auth:bootstrap({127,0,1,N}, Bound, self(), End()),
+        bus_operator_http:encode_nonce(Nonce)
+    end || N <- lists:seq(1, 33)],
+    Open = fun(Hex) ->
+        {ok, Sock} = gen_tcp:connect({127,0,0,1}, Port, [binary, {active,false}, {packet,raw}], 2000),
+        ok = gen_tcp:send(Sock, ["GET /dashboard/api/v1/stream HTTP/1.1\r\nHost: localhost:", integer_to_list(Port),
+            "\r\nX-Switchboard-Session: ", Hex, "\r\nConnection: close\r\n\r\n"]), Sock
+    end,
+    Sockets = [begin Sock = Open(Hex), _ = until_contains(Sock, <<>>, <<"event: observation">>, End()), Sock end || Hex <- lists:sublist(Nonces, 32)],
+    try
+        Full = Open(lists:last(Nonces)),
+        try
+            Data = until_contains(Full, <<>>, <<"\r\n\r\n">>, End()),
+            true = binary:match(Data, <<"503">>) =/= nomatch
+        after gen_tcp:close(Full) end,
+        Duplicate = Open(hd(Nonces)),
+        try
+            DuplicateData = until_contains(Duplicate, <<>>, <<"\r\n\r\n">>, End()),
+            true = binary:match(DuplicateData, <<"409">>) =/= nomatch
+        after gen_tcp:close(Duplicate) end,
+        {200, _} = operator_get(Config, "/health", []),
+        ct:pal("operator_observers=32 memory_delta=~p process_delta=~p", [erlang:memory(total) - StartMemory,
+            erlang:system_info(process_count) - StartProcesses])
+    after lists:foreach(fun gen_tcp:close/1, Sockets) end,
+    wait_observers_gone(End()).
+
+slow_observer_does_not_block_core(Config) ->
+    Port = proplists:get_value(port, Config),
+    Bound = <<"http://localhost:", (integer_to_binary(Port))/binary>>,
+    End = fun() -> erlang:monotonic_time(millisecond) + 5000 end,
+    {ok, Nonce} = bus_operator_auth:bootstrap({127,0,2,1}, Bound, self(), End()),
+    Hex = bus_operator_http:encode_nonce(Nonce),
+    {ok, Sock} = gen_tcp:connect({127,0,0,1}, Port, [binary, {active,false}, {packet,raw}, {recbuf,1024}], 2000),
+    Journal = whereis(bus_operator_journal), Ingress = bus_operator_ingress:tid(Journal),
+    Body = binary:copy(<<"x">>, 16384),
+    Event = #{<<"kind">> => <<"mail_accepted">>, <<"source">> => <<"relay_observed">>,
+        <<"agentId">> => ?OP, <<"payload">> => #{<<"id">> => ?OP, <<"from">> => ?A,
+        <<"to">> => ?OP, <<"kind">> => <<"notice">>, <<"acceptedAt">> => <<"1">>,
+        <<"receiving">> => true, <<"bodyBytes">> => 16384, <<"body">> => Body}},
+    try
+        ok = gen_tcp:send(Sock, ["GET /dashboard/api/v1/stream HTTP/1.1\r\nHost: localhost:", integer_to_list(Port),
+            "\r\nX-Switchboard-Session: ", Hex, "\r\nConnection: close\r\n\r\n"]),
+        _ = until_contains(Sock, <<>>, <<"event: observation">>, End()),
+        Start = erlang:monotonic_time(millisecond),
+        lists:foreach(fun(_) ->
+            lists:foreach(fun(_) ->
+                case bus_operator_ingress:try_in(Ingress, Journal, Event, #{enroll_bodies => true}) of
+                    {ok, wake} -> Journal ! drain;
+                    _ -> ok
+                end
+            end, lists:seq(1, 32)),
+            timer:sleep(10)
+        end, lists:seq(1, 128)),
+        {200, _} = operator_get(Config, "/health", []),
+        {ok, _} = bus_store:list_agents(),
+        wait_observers_gone(erlang:monotonic_time(millisecond) + 10000),
+        ct:pal("slow_operator_observer_closed_ms=~p core_remained_available=true", [erlang:monotonic_time(millisecond) - Start])
+    after gen_tcp:close(Sock) end.
+
+wait_observers_gone(End) ->
+    State = sys:get_state(bus_operator_journal),
+    case map_size(maps:get(observers, State)) of
+        0 -> 0 = maps:get(inflight, State), ok;
+        _ -> true = erlang:monotonic_time(millisecond) < End, timer:sleep(10), wait_observers_gone(End)
+    end.
+
+until_contains(Sock, Buffer, Needle, End) ->
+    case binary:match(Buffer, Needle) of
+        nomatch ->
+            true = byte_size(Buffer) < 1048576,
+            {ok, Data} = gen_tcp:recv(Sock, 0, max(1, End - erlang:monotonic_time(millisecond))),
+            until_contains(Sock, <<Buffer/binary, Data/binary>>, Needle, End);
+        _ -> Buffer
+    end.
+
+until_closed(Sock, End) ->
+    case gen_tcp:recv(Sock, 0, max(1, End - erlang:monotonic_time(millisecond))) of
+        {error, closed} -> ok;
+        {ok, _} -> until_closed(Sock, End);
+        Other -> error({stream_not_closed, Other})
+    end.
+
+announce_doc() ->
+    Work = #{<<"workId">> => null, <<"objective">> => null, <<"phase">> => null,
+             <<"currentStep">> => null, <<"nextStep">> => null, <<"owner">> => null,
+             <<"blocker">> => null, <<"project">> => null, <<"repository">> => null,
+             <<"branch">> => null, <<"worktree">> => null, <<"parentWorkId">> => null,
+             <<"delegatedWorkId">> => null, <<"evidence">> => []},
+    #{<<"schemaVersion">> => 1, <<"agentId">> => ?OP, <<"sessionId">> => ?OPS,
+      <<"runtimeGeneration">> => <<"1">>, <<"sessionGeneration">> => <<"1">>,
+      <<"branchId">> => null, <<"registration">> => null,
+      <<"permissionRevision">> => <<"0">>, <<"reportRevision">> => <<"1">>,
+      <<"capabilities">> => [<<"work.report.v1">>],
+      <<"permissions">> => #{
+          <<"notice">> => false, <<"work">> => false, <<"guidance">> => false,
+          <<"sessionRead">> => false, <<"label">> => false, <<"interrupt">> => false,
+          <<"content">> => false, <<"workAssign">> => false, <<"history">> => false},
+      <<"work">> => Work, <<"activeRunId">> => null}.
 
 origin(Config) ->
     Port = integer_to_binary(proplists:get_value(port, Config)),

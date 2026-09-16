@@ -16,6 +16,7 @@ http_test_() ->
     {setup, fun setup/0, fun cleanup/1, {timeout, 30, {inorder, [
         fun disabled_mode/0,
         fun bootstrap_and_presence_roundtrip/0,
+        fun events_access_and_reset/0,
         fun absent_origin_read_and_case/0,
         fun mutation_query_rejected_before_gate/0,
         fun origin_matrix/0,
@@ -27,7 +28,9 @@ http_test_() ->
         fun stale_gate_after_partial_body/0,
         fun legacy_token_isolation/0,
         fun security_headers_and_no_cors/0,
-        fun no_mailbox_interference/0
+        fun no_mailbox_interference/0,
+        fun selected_runtime_work_read/0,
+        fun fleet_work_snapshot_read/0
     ]}}}.
 
 setup() ->
@@ -49,6 +52,9 @@ setup() ->
     {ok, Store} = bus_store:start_link(),
     unlink(Store),
     ets:insert(owned(), {store, Store}),
+    {ok, Native} = bus_operator_native:start_link(),
+    unlink(Native),
+    ets:insert(owned(), {native, Native}),
     {ok, _} = ranch:start_listener(listener(), ranch_tcp, trans_opts(),
         bus_connection, proto_opts()),
     Port = ranch:get_port(listener()),
@@ -66,7 +72,7 @@ cleanup(#{old_access := OldAccess, old_token := OldToken}) ->
                     [] -> ok
                 end
         end
-    end, [auth, gate, store]),
+    end, [auth, gate, native, store]),
     catch ets:delete(owned()),
     restore_env(operator_access, OldAccess),
     restore_env(token, OldToken),
@@ -75,7 +81,7 @@ cleanup(#{old_access := OldAccess, old_token := OldToken}) ->
 assert_clean_fixture() ->
     lists:foreach(fun(Name) ->
         ?assertEqual(undefined, whereis(Name))
-    end, [bus_operator_auth, bus_operator_http_gate, bus_store]),
+    end, [bus_operator_auth, bus_operator_http_gate, bus_operator_native, bus_store]),
     ?assertEqual(undefined, listener_port()),
     ?assertEqual(undefined, ets:info(owned())).
 
@@ -136,6 +142,9 @@ proto_opts() ->
         {"/dashboard/api/v1/session", bus_operator_h, session},
         {"/dashboard/api/v1/disconnect", bus_operator_h, disconnect},
         {"/dashboard/api/v1/presence", bus_operator_h, presence},
+        {"/dashboard/api/v1/events", bus_operator_h, events},
+        {"/dashboard/api/v1/work", bus_operator_h, work_fleet},
+        {"/dashboard/api/v1/work/:agent_id", bus_operator_h, work},
         {"/v1/agents", bus_http_h, list},
         {"/v1/agents/:agent_id", bus_http_h, agent},
         {"/v1/messages", bus_http_h, messages},
@@ -169,6 +178,34 @@ bootstrap_and_presence_roundtrip() ->
     {200, _, Presence} = get("/dashboard/api/v1/presence", session_h(Hex) ++ origin_h()),
     {ok, #{<<"agents">> := _}} = bus_protocol:decode_json(Presence),
     security(H).
+
+events_access_and_reset() ->
+    {200, _, Bootstrap} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),
+    Hex = maps:get(<<"session">>, json_map(Bootstrap)),
+    {401, _, _} = get("/dashboard/api/v1/events", []),
+    {503, _, _} = get("/dashboard/api/v1/events", session_h(Hex)),
+    {ok, Journal} = bus_operator_journal:start_link(),
+    unlink(Journal),
+    try
+        {200, Headers, Body} = get("/dashboard/api/v1/events", session_h(Hex)),
+        security(Headers),
+        Page = json_map(Body),
+        ?assertEqual([], maps:get(<<"events">>, Page)),
+        ?assertEqual(<<"empty">>, maps:get(<<"coverage">>, Page)),
+        Epoch = maps:get(<<"epoch">>, Page),
+        {400, _, _} = get("/dashboard/api/v1/events?cursor=bad", session_h(Hex)),
+        {400, _, _} = get("/dashboard/api/v1/events?x=1", session_h(Hex)),
+        {400, _, _} = get("/dashboard/api/v1/events?cursor=" ++ lists:duplicate(129, $a), session_h(Hex)),
+        {403, _, _} = get("/dashboard/api/v1/events", session_h(Hex) ++
+            [{<<"origin">>, <<"http://attacker.invalid">>}]),
+        Other = <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>,
+        ?assertNotEqual(Other, Epoch),
+        Cursor = base64:encode(<<Other/binary, ":0">>, #{mode => urlsafe, padding => false}),
+        {409, _, Gap} = get("/dashboard/api/v1/events?cursor=" ++ binary_to_list(Cursor), session_h(Hex)),
+        ?assertEqual(<<"epoch_reset">>, error_code(Gap)),
+        {204, _, _} = post("/dashboard/api/v1/disconnect", json() ++ origin_h() ++ session_h(Hex), <<"{}">>),
+        {401, _, _} = get("/dashboard/api/v1/events", session_h(Hex))
+    after stop_pid(Journal) end.
 
 absent_origin_read_and_case() ->
     Port = integer_to_binary(port()),
@@ -345,6 +382,108 @@ no_mailbox_interference() ->
     end, [model, subs]),
     bus_store:unsubscribe(Id, Ref).
 
+selected_runtime_work_read() ->
+    Id = <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>,
+    Missing = <<"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb">>,
+    Path = "/dashboard/api/v1/work/" ++ binary_to_list(Id),
+    MissingPath = "/dashboard/api/v1/work/" ++ binary_to_list(Missing),
+    {200, _, Body} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),
+    Hex = maps:get(<<"session">>, json_map(Body)),
+    Bearer = [{<<"authorization">>, <<"Bearer ", (bearer())/binary>>}],
+    {401, _, _} = get(Path, origin_h()),
+    {401, _, _} = get(Path, origin_h() ++ Bearer),
+    {403, _, _} = get(Path, session_h(Hex) ++
+        [{<<"origin">>, <<"http://attacker.invalid">>}]),
+    {400, _, _} = get("/dashboard/api/v1/work/invalid", session_h(Hex) ++ origin_h()),
+    {400, _, _} = get(Path ++ "?x=1", session_h(Hex) ++ origin_h()),
+    {405, _, _} = post(Path, json() ++ origin_h() ++ session_h(Hex), <<"{}">>),
+    ok = bus_store:put_agent(agent(Id)),
+    {404, _, Unreported} = get(Path, session_h(Hex) ++ origin_h()),
+    ?assertEqual(<<"not_found">>, error_code(Unreported)),
+    {404, _, Unknown} = get(MissingPath, session_h(Hex) ++ origin_h()),
+    ?assertEqual(<<"not_found">>, error_code(Unknown)),
+    {ok, _} = bus_operator_native:announce(self(), announce_doc(Id, populated_work()),
+        erlang:monotonic_time(millisecond) + 5000),
+    Before = sys:get_state(bus_store),
+    {200, H, WorkBody} = get(Path, session_h(Hex) ++ origin_h()),
+    security(H),
+    Page = json_map(WorkBody),
+    ?assertEqual(true, maps:is_key(<<"binding">>, Page)),
+    ?assertEqual(true, maps:is_key(<<"work">>, Page)),
+    ?assertEqual(true, maps:is_key(<<"permissions">>, Page)),
+    Work = maps:get(<<"work">>, Page),
+    Binding = maps:get(<<"binding">>, Page),
+    ?assertEqual(<<"implementing">>, maps:get(<<"phase">>, Work)),
+    ?assertEqual(<<"Ship the operator work snapshot codec">>, maps:get(<<"objective">>, Work)),
+    ?assertEqual(Id, maps:get(<<"workId">>, Work)),
+    ?assertEqual([<<"work.report.v1">>], maps:get(<<"capabilities">>, Binding)),
+    After = sys:get_state(bus_store),
+    lists:foreach(fun(Key) ->
+        ?assertEqual(maps:get(Key, Before), maps:get(Key, After))
+    end, [model, subs]),
+    {ok, _} = bus_operator_native:announce(self(), announce_doc(Id, null_work(), <<"2">>),
+        erlang:monotonic_time(millisecond) + 5000),
+    {200, _, NullBody} = get(Path, session_h(Hex) ++ origin_h()),
+    NullWork = maps:get(<<"work">>, json_map(NullBody)),
+    ?assertEqual(null, maps:get(<<"phase">>, NullWork)),
+    ?assertEqual(null, maps:get(<<"objective">>, NullWork)),
+    ok = bus_store:delete_agent(Id),
+    {404, _, Stale} = get(Path, session_h(Hex) ++ origin_h()),
+    ?assertEqual(<<"not_found">>, error_code(Stale)),
+    stop_pid(whereis(bus_operator_native)),
+    ets:delete(owned(), native),
+    wait_unregistered(bus_operator_native),
+    {503, _, Down} = get(Path, session_h(Hex) ++ origin_h()),
+    ?assertEqual(<<"capacity">>, error_code(Down)),
+    {ok, Native} = bus_operator_native:start_link(),
+    unlink(Native),
+    ets:insert(owned(), {native, Native}),
+    {204, _, _} = post("/dashboard/api/v1/disconnect",
+        json() ++ origin_h() ++ session_h(Hex), <<"{}">>),
+    {401, _, _} = get(Path, session_h(Hex) ++ origin_h()).
+
+fleet_work_snapshot_read() ->
+    Id = <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>,
+    Fleet = "/dashboard/api/v1/work",
+    One = "/dashboard/api/v1/work/" ++ binary_to_list(Id),
+    {200, _, Body} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),
+    Hex = maps:get(<<"session">>, json_map(Body)),
+    Bearer = [{<<"authorization">>, <<"Bearer ", (bearer())/binary>>}],
+    {401, _, _} = get(Fleet, origin_h()),
+    {401, _, _} = get(Fleet, origin_h() ++ Bearer),
+    {403, _, _} = get(Fleet, session_h(Hex) ++
+        [{<<"origin">>, <<"http://attacker.invalid">>}]),
+    {400, _, _} = get(Fleet ++ "?x=1", session_h(Hex) ++ origin_h()),
+    {200, H, EmptyB} = get(Fleet, session_h(Hex) ++ origin_h()),
+    security(H),
+    Empty = json_map(EmptyB),
+    lists:foreach(fun(K) -> ?assertEqual(true, maps:is_key(K, Empty)) end,
+        [<<"epoch">>, <<"snapshotId">>, <<"revision">>, <<"capturedAt">>,
+         <<"page">>, <<"total">>, <<"snapshots">>, <<"nextCursor">>]),
+    ?assertEqual([], maps:get(<<"snapshots">>, Empty)),
+    ?assertEqual(0, maps:get(<<"total">>, Empty)),
+    ?assertEqual(null, maps:get(<<"nextCursor">>, Empty)),
+    ok = bus_store:put_agent(agent(Id)),
+    {ok, _} = bus_operator_native:announce(self(), announce_doc(Id, populated_work()),
+        erlang:monotonic_time(millisecond) + 5000),
+    Before = sys:get_state(bus_store),
+    {200, _, PageB} = get(Fleet, session_h(Hex) ++ origin_h()),
+    Page = json_map(PageB),
+    [Snap] = maps:get(<<"snapshots">>, Page),
+    ?assertEqual(true, maps:is_key(<<"binding">>, Snap)),
+    ?assertEqual(true, maps:is_key(<<"work">>, Snap)),
+    ?assertEqual(true, maps:is_key(<<"permissions">>, Snap)),
+    ?assertEqual(<<"implementing">>, maps:get(<<"phase">>, maps:get(<<"work">>, Snap))),
+    After = sys:get_state(bus_store),
+    lists:foreach(fun(Key) ->
+        ?assertEqual(maps:get(Key, Before), maps:get(Key, After))
+    end, [model, subs]),
+    {200, _, OneB} = get(One, session_h(Hex) ++ origin_h()),
+    ?assertEqual(<<"implementing">>, maps:get(<<"phase">>, maps:get(<<"work">>, json_map(OneB)))),
+    {204, _, _} = post("/dashboard/api/v1/disconnect",
+        json() ++ origin_h() ++ session_h(Hex), <<"{}">>),
+    {401, _, _} = get(Fleet, session_h(Hex) ++ origin_h()).
+
 origin_h() -> [{<<"origin">>, origin()}].
 session_h(Hex) -> [{<<"x-switchboard-session">>, Hex}].
 
@@ -392,6 +531,26 @@ agent(Id) ->
       <<"cwd">> => <<"/tmp">>, <<"sessionName">> => <<"test">>, <<"label">> => <<"test">>,
       <<"model">> => null, <<"status">> => <<"idle">>, <<"pid">> => 1,
       <<"acceptsControl">> => false}.
+
+announce_doc(Id, Work) ->
+    announce_doc(Id, Work, <<"1">>).
+announce_doc(Id, Work, Report) ->
+    #{<<"schemaVersion">> => 1, <<"agentId">> => Id, <<"sessionId">> => Id,
+      <<"runtimeGeneration">> => <<"1">>, <<"sessionGeneration">> => <<"1">>,
+      <<"branchId">> => null, <<"registration">> => null,
+      <<"permissionRevision">> => <<"0">>, <<"reportRevision">> => Report,
+      <<"capabilities">> => [<<"work.report.v1">>],
+      <<"permissions">> => #{
+          <<"notice">> => false, <<"work">> => false, <<"guidance">> => false,
+          <<"sessionRead">> => false, <<"label">> => false, <<"interrupt">> => false,
+          <<"content">> => false, <<"workAssign">> => false, <<"history">> => false},
+      <<"work">> => Work, <<"activeRunId">> => null}.
+
+null_work() -> work_fixture(<<"allNull">>).
+populated_work() -> work_fixture(<<"populated">>).
+work_fixture(Key) ->
+    {ok, Bin} = file:read_file("../tests/fixtures/operator-work.json"),
+    maps:get(Key, json:decode(Bin)).
 
 bearer() -> <<"ct-token">>.
 agent_path() -> "/v1/agents/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".

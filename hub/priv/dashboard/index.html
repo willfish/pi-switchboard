@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="referrer" content="no-referrer">
-  <title>Pi Switchboard · Runtimes</title>
+  <title>Pi Switchboard · Console</title>
   <link rel="stylesheet" href="/dashboard/dashboard.css">
   <script type="module" src="/dashboard/dashboard.js"></script>
 </head>
 <body>
-  <a class="skip" href="#runtimes">Skip to runtimes</a>
+  <a class="skip" href="#console-content">Skip to console content</a>
   <main>
     <header class="masthead">
-      <div><p class="eyebrow">PI SWITCHBOARD / OPERATOR VIEW</p><h1>Runtime presence</h1>
-        <p class="intro">Registered runtimes, reported activity and receiving connections. This page connects automatically; there is no token, pairing or account step.</p></div>
+      <div><p class="eyebrow">PI SWITCHBOARD / OPERATOR VIEW</p><h1>Fleet console</h1>
+        <p class="intro">Reported work, communications and runtime context.</p></div>
       <label class="theme">Appearance<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
     </header>
     <section class="connection panel" aria-label="Connection and freshness">
@@ -26,26 +26,115 @@
         <button id="disconnect" type="button">Disconnect and clear</button>
         <button id="reconnect" type="button" hidden>Reconnect</button></div>
     </section>
+    <nav class="actions console-nav" aria-label="Console views">
+      <button id="view-fleet" type="button" aria-pressed="true" aria-controls="runtimes">Fleet</button>
+      <button id="view-communications" type="button" aria-pressed="false" aria-controls="communications">Communications</button>
+    </nav>
+    <section id="attention" class="panel" aria-labelledby="attention-title">
+      <h2 id="attention-title" tabindex="-1">Needs attention</h2>
+      <p id="attention-status" class="muted" role="status" aria-live="polite">Work reports have not been read.</p>
+      <div id="attention-list" class="actions"></div>
+      <div id="attention-operations" class="actions" aria-label="Uncertain or rejected operations observed by this page"></div>
+      <p id="attention-empty" class="muted" hidden></p>
+    </section>
     <section class="metrics" aria-label="Complete snapshot counts">
       <div class="metric"><span id="registered-count">--</span><h2>Registered runtimes</h2></div>
       <div class="metric"><span id="busy-count">--</span><h2>Busy</h2></div>
       <div class="metric"><span id="receiving-count">--</span><h2>Receiving</h2></div>
       <div class="metric"><span id="control-count">--</span><h2>Peer control reported</h2></div>
     </section>
+    <div id="console-content" class="workspace" tabindex="-1">
     <section id="runtimes" class="panel overview" aria-labelledby="runtimes-title" tabindex="-1">
       <div class="section-heading"><h2 id="runtimes-title">Runtime overview</h2><div class="actions"><p id="matching" class="muted">Counts unavailable</p><button id="clear-filters" type="button">Clear filters</button></div></div>
       <div class="filters">
         <label class="search">Search<input id="search" type="search" maxlength="200" placeholder="Label, session, host, model or ID" autocomplete="off"></label>
         <label>Host<select id="host"><option value="">All hosts</option></select></label>
-        <label>Sort by<select id="sort"><option value="label">Label</option><option value="host">Host</option><option value="model">Model</option><option value="activity">Activity</option></select></label>
+        <label>Group/sort<select id="sort"><option value="work">Project / work</option><option value="label">Label</option><option value="host">Host</option><option value="model">Model</option><option value="activity">Activity</option></select></label>
         <label>Activity<select id="activity"><option value="">Any activity</option><option value="busy">Busy</option><option value="idle">Idle</option></select></label>
         <label>Receiving<select id="receiving"><option value="">Any connection</option><option value="true">Receiving</option><option value="false">Not receiving</option></select></label>
         <label>Peer control<select id="control"><option value="">Any report</option><option value="true">Reported</option><option value="false">Not reported</option></select></label>
+        <label>Project<select id="project"><option value="">All projects</option></select></label>
+        <label>Work item<select id="work-filter"><option value="">All work items</option></select></label>
+        <label>Model<select id="model-filter"><option value="">All models</option></select></label>
+        <label>Reported owner/team<select id="owner-filter"><option value="">All owners</option></select></label>
+        <label>Capability<select id="capability-filter"><option value="">Any capability</option></select></label>
+        <label class="check"><input id="watched" type="checkbox">Watchlist only</label>
       </div>
       <p id="empty" class="empty">Connecting to read runtime presence.</p>
       <div id="cards" class="cards"></div>
       <nav class="pagination" aria-label="Runtime pages"><button id="previous" type="button" disabled>Previous</button><span id="page">Page unavailable</span><button id="next" type="button" disabled>Next</button></nav>
     </section>
+    <section id="communications" class="panel" aria-labelledby="communications-title" hidden>
+      <h2 id="communications-title">Communications</h2>
+      <p class="muted">Volatile observation history: at most 24 hours, 100,000 events or 128 MiB, whichever is reached first. Message content is not collected by default.</p>
+      <p id="communications-status" role="status" aria-live="polite">Select Communications to read retained history.</p>
+      <details><summary>Search retained history</summary><div class="filters">
+        <label>Literal search (case-sensitive)<input id="communications-query" type="search" maxlength="200"></label>
+        <label>Participant runtime ID<input id="communications-participant" maxlength="36"></label>
+        <label>Work ID<input id="communications-work" maxlength="36"></label>
+        <label>Thread ID<input id="communications-thread" maxlength="36"></label>
+        <label>Outcome<select id="communications-outcome"><option value="">Any outcome</option><option>queued</option><option>received</option><option>attempted</option><option>observed</option><option>labelled</option><option>abort_requested</option><option>settled</option><option>completed</option><option>failed</option><option>rejected</option><option>expired</option><option>unknown</option></select></label>
+        <label>From (UTC)<input id="communications-from" type="datetime-local"></label>
+        <label>Until (UTC)<input id="communications-to" type="datetime-local"></label>
+        <button id="communications-query-submit" type="button">Search retained history</button>
+      </div></details>
+      <div class="actions">
+        <button id="communications-reset" type="button">Read retained history</button>
+        <button id="communications-more" type="button">Read next events</button>
+        <button id="communications-updates" type="button" hidden>Show available live updates</button>
+        <label class="check"><input id="communications-follow" type="checkbox">Follow live</label>
+        <label>View<select id="communications-category"><option value="communications">Communications</option><option value="activity">Work activity</option><option value="diagnostics">Diagnostics</option><option value="all">All events</option></select></label>
+        <label>Filter this page<input id="communications-search" type="search" maxlength="200" autocomplete="off"></label>
+      </div>
+      <p id="communications-count" class="muted">No events loaded</p>
+      <div id="communications-list"></div>
+    </section>
+    <aside id="inspector" class="panel" aria-labelledby="inspector-title" hidden>
+      <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Runtime detail</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous runtime</button><button id="inspector-close" type="button">Close detail</button></div></div>
+      <p id="inspector-target" class="identity peer"></p>
+      <p id="inspector-status" role="status" aria-live="polite"></p>
+      <nav class="actions" aria-label="Runtime detail views">
+        <button id="inspector-overview" type="button" aria-pressed="true">Overview</button>
+        <button id="inspector-conversation" type="button" aria-pressed="false">Conversation</button>
+        <button id="inspector-session" type="button" aria-pressed="false">Session</button>
+        <button id="inspector-changes" type="button" aria-pressed="false">Changes</button>
+        <button id="inspector-activity" type="button" aria-pressed="false">Activity</button>
+      </nav>
+      <div id="inspector-body"></div>
+      <section id="operator-session-panel" hidden aria-label="Stored conversation projection">
+        <div class="actions"><button id="session-read" type="button">Read current session</button><button id="session-earlier" type="button" disabled>Read earlier page</button></div>
+        <p id="session-status" class="muted"></p><div id="session-records"></div>
+      </section>
+      <section id="operator-composer" aria-label="Intervention composer">
+        <h3>Intervene</h3>
+        <label>Action<select id="operation-kind"><option value="notice">Send notice</option><option value="work">Ask to work</option><option value="guidance">Send guidance</option><option value="label">Set label</option><option value="interrupt">Interrupt selected run</option></select></label>
+        <p id="operation-help" class="muted"></p>
+        <label>Message, label or interruption reason<textarea id="operation-text" rows="4" maxlength="16384"></textarea></label>
+        <p id="operation-target" class="muted"></p>
+        <div class="actions"><button id="operation-confirm-target" type="button" hidden>Confirm refreshed target</button><button id="operation-send" type="button" disabled>Send notice</button><button id="operation-clear" type="button">Clear draft</button><button id="operation-new-intent" type="button" hidden>I reviewed the unknown outcome; allow a new intent</button></div>
+        <p id="operation-status" role="status" aria-live="polite"></p>
+      </section>
+      <details id="work-assignment"><summary>Assign or update work</summary>
+        <p id="assignment-status" class="muted"></p>
+        <div class="filters">
+          <label>Work ID<input id="assign-workId" maxlength="36"></label>
+          <label>Objective<input id="assign-objective" maxlength="2048"></label>
+          <label>Phase<select id="assign-phase"><option value="">Not reported</option><option>planning</option><option>implementing</option><option>verifying</option><option>waiting</option><option>completed</option><option>failed</option></select></label>
+          <label>Owner/team<input id="assign-owner" maxlength="200"></label>
+          <label>Current step<input id="assign-currentStep" maxlength="2048"></label>
+          <label>Next step<input id="assign-nextStep" maxlength="2048"></label>
+          <label>Project<input id="assign-project" maxlength="2048"></label>
+          <label>Parent work ID<input id="assign-parentWorkId" maxlength="36"></label>
+          <label>Delegated work ID<input id="assign-delegatedWorkId" maxlength="36"></label>
+        </div>
+        <div class="actions"><button id="assignment-load" type="button">Load current assignment</button><button id="assignment-new" type="button">New work item</button><button id="assignment-send" type="button" disabled>Apply assignment</button></div>
+      </details>
+      <section aria-label="Operation outcomes"><div class="section-heading"><h3>Operation outcomes</h3><button id="operation-list-refresh" type="button">Refresh activity</button></div><div id="operation-list"></div></section>
+      <div class="actions"><button id="inspector-refresh" type="button">Refresh work report</button>
+        <button id="inspector-watch" type="button" aria-pressed="false">Watch runtime</button>
+        <button id="inspector-communications" type="button">Show recorded communications</button></div>
+    </aside>
+    </div>
     <footer><p>Counts describe overlapping runtime properties, not people or tasks. Labels and activity are client reports, not proof of progress.</p>
       <p>Peer-control badges are agent-reported receiver flags, not operator permission. Receiving means a subscription, not delivery confirmation. Disconnect and clear stops this view only; Reconnect remains possible while the network still admits this page.</p></footer>
     <noscript><p class="panel">JavaScript is required for this viewer. No presence or credentials are embedded in this page.</p></noscript>

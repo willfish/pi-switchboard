@@ -89,7 +89,7 @@ export function bindCommands(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
           const items = completionItems(match[2], runtime.listCached(), runtime.runtimeId() ?? "");
           return items.length ? items.map(item => ({ ...item, value: (match[1] ?? "") + item.value })) : null;
         }
-        const choices = name === "bus" ? ["inbox", "control on", "control off"] : name === "label" ? ["--clear"] : [];
+        const choices = name === "bus" ? ["inbox", "control on", "control off", "operator read on", "operator read off", "operator manage on", "operator manage off", "operator notices on", "operator notices off", "operator history on", "operator history off"] : name === "label" ? ["--clear"] : [];
         return choices.filter(value => value.startsWith(prefix)).map(value => ({ value, label: value }));
       },
       handler: async (args, ctx) => {

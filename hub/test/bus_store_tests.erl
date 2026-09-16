@@ -6,6 +6,7 @@ subscription_test_() ->
         fun(_) -> fun replaced_pull/0 end,
         fun(_) -> fun wrong_caller/0 end,
         fun(_) -> fun empty_pull_rearms/0 end,
+        fun(_) -> fun duplicate_acceptance_does_not_rewake/0 end,
         fun(_) -> fun stale_ack/0 end,
         fun(_) -> fun presence_pull_rearms/0 end,
         fun(_) -> fun heartbeat_is_quiet/0 end,
@@ -197,6 +198,18 @@ empty_pull_rearms() ->
     ?assertEqual({empty, undefined}, pop(Ref)),
     ?assertEqual(false, flag(mail_wake)).
 
+duplicate_acceptance_does_not_rewake() ->
+    {ok, Ref} = bus_store:subscribe(<<"b">>, self()),
+    expect_wake(Ref, mail),
+    ?assertEqual({empty, undefined}, pop(Ref)),
+    {ok, Accepted} = bus_store:accept_mail(mail()),
+    expect_wake(Ref, mail),
+    ?assertMatch({ok, _}, pop(Ref)),
+    ?assertEqual({empty, undefined}, pop(Ref)),
+    ?assertEqual({ok, Accepted}, bus_store:accept_mail(mail())),
+    ?assertEqual(false, flag(mail_wake)),
+    receive {bus, Ref, mail} -> ?assert(false) after 0 -> ok end.
+
 stale_ack() ->
     {ok, OldRef} = bus_store:subscribe(<<"b">>, self()),
     {ok, Ref} = bus_store:subscribe(<<"b">>, self()),
@@ -340,7 +353,8 @@ deadline_ops(Ref) ->
      {delete_agent, <<"a">>}, {accept_mail, (mail())#{<<"id">> => <<"late">>}},
      {subscribe, <<"b">>, self()},
      {subscription, <<"b">>, Ref, pop_mail},
-     {subscription, <<"b">>, Ref, pull_presence}, {list_agents_page,first}, list_agents].
+     {subscription, <<"b">>, Ref, pull_presence}, {list_agents_page,first}, list_agents,
+     {operator_registration, <<"a">>}].
 
 explicit_call({put_agent, A}, D) -> bus_store:put_agent(A, D);
 explicit_call({delete_agent, A}, D) -> bus_store:delete_agent(A, D);
@@ -349,7 +363,8 @@ explicit_call({subscribe, A, P}, D) -> bus_store:subscribe(A, P, D);
 explicit_call({subscription, A, R, pop_mail}, D) -> bus_store:pop_mail(A, R, D);
 explicit_call({subscription, A, R, pull_presence}, D) -> bus_store:pull_presence(A, R, D);
 explicit_call({list_agents_page,C},D) -> bus_store:list_agents_page(C,D);
-explicit_call(list_agents, D) -> bus_store:list_agents(D).
+explicit_call(list_agents, D) -> bus_store:list_agents(D);
+explicit_call({operator_registration, A}, D) -> bus_store:operator_registration(A, D).
 
 expired_deadlines() ->
     {ok, Ref} = bus_store:subscribe(<<"b">>, self()),
@@ -448,3 +463,154 @@ agent(Id) ->
 mail() ->
     #{<<"id">> => <<"mail-1">>, <<"from">> => <<"a">>, <<"to">> => <<"b">>,
       <<"kind">> => <<"notice">>, <<"body">> => <<"hello">>}.
+
+
+-define(OA, <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>).
+-define(OB, <<"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb">>).
+-define(OM, <<"cccccccc-cccc-4ccc-8ccc-cccccccccccc">>).
+
+observation_test_() ->
+    {foreach, fun setup_obs/0, fun cleanup_obs/1, [
+        fun(_) -> fun new_mail_is_observed/0 end,
+        fun(_) -> fun duplicate_mail_is_not_observed_again/0 end,
+        fun(_) -> fun pop_is_observed_without_body/0 end,
+        fun(_) -> fun journal_failure_does_not_reject_mail/0 end,
+        fun(_) -> fun dispatch_occurred_at_is_dispatch_wall/0 end
+    ]}.
+
+setup_obs() ->
+    case whereis(bus_operator_journal) of
+        undefined -> ok;
+        J0 -> catch gen_server:stop(J0)
+    end,
+    {ok, Journal} = bus_operator_journal:start_link(),
+    unlink(Journal),
+    {ok, Store} = bus_store:start_link(),
+    ok = bus_store:put_agent(agent(?OA)),
+    ok = bus_store:put_agent(agent(?OB)),
+    {Store, Journal}.
+
+cleanup_obs({Store, Journal}) ->
+    catch gen_server:stop(Store),
+    catch gen_server:stop(Journal),
+    flush().
+
+uuid_mail() ->
+    #{<<"id">> => ?OM, <<"from">> => ?OA, <<"to">> => ?OB,
+      <<"kind">> => <<"notice">>, <<"body">> => <<"hello">>}.
+
+obs_page() ->
+    Journal = whereis(bus_operator_journal),
+    Journal ! drain,
+    sys:get_state(Journal),
+    Digest = crypto:hash(sha256, <<1:256>>),
+    {ok, Bin} = bus_operator_journal:page(first, self(), Digest,
+        erlang:monotonic_time(millisecond) + 5000),
+    json:decode(Bin).
+
+new_mail_is_observed() ->
+    {ok, _} = bus_store:accept_mail(uuid_mail()),
+    Doc = obs_page(),
+    [Ev] = maps:get(<<"events">>, Doc),
+    ?assertEqual(<<"mail_accepted">>, maps:get(<<"kind">>, Ev)),
+    Payload = maps:get(<<"payload">>, Ev),
+    ?assertEqual(?OM, maps:get(<<"id">>, Payload)),
+    ?assertEqual(5, maps:get(<<"bodyBytes">>, Payload)),
+    ?assertEqual(false, maps:is_key(<<"body">>, Payload)),
+    ?assertEqual(true, is_binary(maps:get(<<"occurredAt">>, Ev))),
+    ?assertEqual(maps:get(<<"occurredAt">>, Ev),
+        maps:get(<<"acceptedAt">>, Payload)).
+
+duplicate_mail_is_not_observed_again() ->
+    {ok, Accepted} = bus_store:accept_mail(uuid_mail()),
+    _ = obs_page(),
+    ?assertEqual({ok, Accepted}, bus_store:accept_mail(uuid_mail())),
+    Doc = obs_page(),
+    ?assertEqual(1, length(maps:get(<<"events">>, Doc))).
+
+pop_is_observed_without_body() ->
+    {ok, _} = bus_store:accept_mail(uuid_mail()),
+    {ok, Ref} = bus_store:subscribe(?OB, self()),
+    expect_wake(Ref, mail),
+    expect_wake(Ref, presence),
+    {ok, Public} = bus_store:pop_mail(?OB, Ref),
+    ?assertEqual(<<"hello">>, maps:get(<<"body">>, Public)),
+    Doc = obs_page(),
+    Kinds = [maps:get(<<"kind">>, E) || E <- maps:get(<<"events">>, Doc)],
+    ?assert(lists:member(<<"mail_accepted">>, Kinds)),
+    ?assert(lists:member(<<"mail_dispatched">>, Kinds)),
+    Dispatch = hd([E || E <- maps:get(<<"events">>, Doc),
+        maps:get(<<"kind">>, E) =:= <<"mail_dispatched">>]),
+    ?assertEqual(false, maps:is_key(<<"body">>, maps:get(<<"payload">>, Dispatch))).
+
+journal_failure_does_not_reject_mail() ->
+    catch gen_server:stop(whereis(bus_operator_journal)),
+    ?assertMatch({ok, _}, bus_store:accept_mail(uuid_mail())),
+    {ok, Ref} = bus_store:subscribe(?OB, self()),
+    ?assertMatch({ok, _}, bus_store:pop_mail(?OB, Ref)).
+
+dispatch_occurred_at_is_dispatch_wall() ->
+    {ok, _} = bus_store:accept_mail(uuid_mail()),
+    {ok, Ref} = bus_store:subscribe(?OB, self()),
+    expect_wake(Ref, mail),
+    expect_wake(Ref, presence),
+    State = sys:get_state(bus_store),
+    Agent = maps:get(?OB, maps:get(agents, maps:get(model, State))),
+    Mono = maps:get(last_mono, Agent),
+    DispatchWall = 424242,
+    {reply, {ok, Public}, _} = bus_store:handle_call_at(
+        {op, deadline_ms(), {subscription, ?OB, Ref, pop_mail}},
+        {self(), tag}, State, {Mono, DispatchWall}),
+    AcceptAt = maps:get(<<"acceptedAt">>, Public),
+    ?assert(AcceptAt =/= DispatchWall),
+    Doc = obs_page(),
+    Dispatch = hd([E || E <- maps:get(<<"events">>, Doc),
+        maps:get(<<"kind">>, E) =:= <<"mail_dispatched">>]),
+    ?assertEqual(integer_to_binary(DispatchWall),
+        maps:get(<<"occurredAt">>, Dispatch)).
+
+
+operator_registration_identity_test_() ->
+    {foreach, fun setup/0, fun cleanup/1, [
+        fun(_) -> fun operator_registration_live_and_not_found/0 end,
+        fun(_) -> fun operator_registration_new_after_delete/0 end,
+        fun(_) -> fun operator_registrations_bulk_no_lease/0 end
+    ]}.
+
+operator_registration_live_and_not_found() ->
+    {ok, Info} = bus_store:operator_registration(<<"a">>),
+    Epoch = maps:get(epoch, maps:get(discovery, sys:get_state(bus_store))),
+    ?assertEqual(Epoch, maps:get(epoch, Info)),
+    ?assertEqual(<<"a">>, maps:get(agentId, Info)),
+    ?assertEqual(maps:get(<<"sessionId">>, agent(<<"a">>)), maps:get(sessionId, Info)),
+    ?assertEqual(1, maps:get(registrationGeneration, Info)),
+    ?assertEqual({error, not_found}, bus_store:operator_registration(<<"missing">>)),
+    {ok, Page} = bus_store:list_agents_page(first, erlang:monotonic_time(millisecond) + 5000),
+    Doc = json:decode(Page),
+    [Public] = [A || A <- maps:get(<<"agents">>, Doc), maps:get(<<"agentId">>, A) =:= <<"a">>],
+    ?assertEqual(false, maps:is_key(<<"registrationGeneration">>, Public)).
+
+operator_registration_new_after_delete() ->
+    {ok, First} = bus_store:operator_registration(<<"a">>),
+    ok = bus_store:delete_agent(<<"a">>),
+    ?assertEqual({error, not_found}, bus_store:operator_registration(<<"a">>)),
+    ok = bus_store:put_agent(agent(<<"a">>)),
+    {ok, Second} = bus_store:operator_registration(<<"a">>),
+    ?assertEqual(maps:get(epoch, First), maps:get(epoch, Second)),
+    ?assert(maps:get(registrationGeneration, Second) > maps:get(registrationGeneration, First)).
+
+operator_registrations_bulk_no_lease() ->
+    Before = sys:get_state(bus_store),
+    Last = maps:get(last_mono, maps:get(<<"a">>, maps:get(agents, maps:get(model, Before)))),
+    Pid = whereis(bus_store),
+    {ok, Bulk} = bus_store:operator_registrations(Pid, erlang:monotonic_time(millisecond) + 5000),
+    After = sys:get_state(bus_store),
+    ?assertEqual(Last, maps:get(last_mono, maps:get(<<"a">>, maps:get(agents, maps:get(model, After))))),
+    ?assertEqual(maps:get(epoch, maps:get(discovery, Before)), maps:get(epoch, Bulk)),
+    ?assertEqual(true, is_integer(maps:get(capturedAt, Bulk))),
+    Regs = maps:get(registrations, Bulk),
+    ?assertEqual(true, maps:is_key(<<"a">>, Regs)),
+    ?assertEqual(true, maps:is_key(<<"b">>, Regs)),
+    ok = bus_store:delete_agent(<<"b">>),
+    {ok, Bulk2} = bus_store:operator_registrations(Pid, erlang:monotonic_time(millisecond) + 5000),
+    ?assertEqual(false, maps:is_key(<<"b">>, maps:get(registrations, Bulk2))).

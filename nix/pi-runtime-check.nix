@@ -10,6 +10,7 @@ let
     fileset = pkgs.lib.fileset.unions [
       ../tests/pi-runtime.test.mjs
       ../tests/fixtures/pi-runtime
+      ../tests/fixtures/operator-work.json
     ];
   };
 in

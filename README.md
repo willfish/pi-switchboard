@@ -39,7 +39,7 @@ See [operations](docs/operations.md) for modules, credential handling, failure r
 
 ## Browser dashboard
 
-Enable operator access for loopback or a verified tailnet boundary, then open `/dashboard/` to inspect runtime presence, search and filter sessions, and view receiving/peer-control state. The page connects automatically: no password, pairing or copied token. Network-permitted peers are operators; the relay bearer stays out of the browser. Snapshot freshness is explicit, and this presence view never consumes inbox messages or starts agent work. See [operations](docs/operations.md#browser-dashboard) for the access boundary and configuration.
+Enable operator access for loopback or a verified tailnet boundary, then open `/dashboard/`. The console combines fleet work reports, communications, current-session inspection and permission-gated interventions. No password, pairing or copied token is needed; the native relay bearer stays out of the browser. Observation never consumes agent mail, and browser access cannot enable receiver permissions. See the [operator console guide](docs/operator-console.md) and [deployment boundary](docs/operations.md#browser-dashboard).
 
 ## Commands and tools
 
@@ -52,11 +52,15 @@ Enable operator access for loopback or a verified tailnet boundary, then open `/
 | `/tell --steer <target> <text>` | Request steering, which can affect active work |
 | `/bus` | Connection, identity, unread count, consent and pending-slot status |
 | `/bus inbox` | Read-only local viewer, including while disconnected |
-| `/bus control on\|off` | Receiver-local consent; enabling requires confirmation |
+| `/bus control on\|off` | Receiver-local work/guidance consent; enabling requires confirmation |
+| `/bus operator read on\|off` | Current-session inspection and content enrollment |
+| `/bus operator manage on\|off` | Typed work assignment, labels and run interruption |
+| `/bus operator notices on\|off` | Passive operator notices |
+| `/bus operator history on\|off` | Explicit volatile message-preview enrollment |
 
 Targets resolve by runtime ID, unique prefix of at least eight characters, exact host, then label substring. Ambiguity stops the send. Quote targets containing spaces; `--` ends leading flag parsing. Saved session IDs are not routing identities.
 
-The model tools are `list_agents`, `set_agent_label` and `send_agent_message`. No tool enables consent. There is no `ask` mode or execution receipt.
+The model tools are `list_agents`, `set_agent_label`, `send_agent_message` and `report_work`. No tool enables consent. The legacy `/tell` command has no `ask` mode or execution receipt; operator-console actions use a separate typed protocol with action-specific outcomes.
 
 A lost POST response is **outcome unknown**. Check the peer before resending. If a control submission never produces its matching user-message event, the local slot stays occupied; `/reload` clears it and disables consent. Off/on is not a retry mechanism.
 
