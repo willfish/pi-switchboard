@@ -106,6 +106,12 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validator.extract(checked, out)
 
+    def test_inventory_paths_allow_docs_svg_only(self):
+        validator.approved_path("docs/diagrams/hero.svg")
+        for name in ["hero.svg", "docs/secret.bin", "docs/hero.png", "extension/x.svg"]:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                validator.approved_path(name)
+
     def test_missing_extra_and_unapproved_directory(self):
         files = dict(self.files)
         del files["extension/client.ts"]

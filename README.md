@@ -9,7 +9,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Nix](https://img.shields.io/badge/Nix-modules-5277c3?style=for-the-badge&logo=nixos&logoColor=white)
 
-[![A switchboard for live Pi sessions](docs/diagrams/hero.svg)](docs/diagrams/hero.svg)
+![A switchboard for live Pi sessions](docs/diagrams/hero.svg)
 
 `register` -> discover -> notice (no turn) -> prompt/steer only with receiver-local consent.
 

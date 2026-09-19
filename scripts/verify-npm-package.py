@@ -39,7 +39,12 @@ def approved_path(name):
             "noncanonical inventory path")
     require(name in ALLOWED_ROOTS or (len(p.parts) > 1 and p.parts[0] in {"extension", "docs"}),
             "inventory includes a forbidden tree")
-    require(name in ALLOWED_ROOTS or p.suffix in {".ts", ".md"}, "inventory includes a non-source file")
+    require(
+        name in ALLOWED_ROOTS
+        or p.suffix in {".ts", ".md"}
+        or (p.parts[0] == "docs" and p.suffix == ".svg"),
+        "inventory includes a non-source file",
+    )
     return p
 
 
