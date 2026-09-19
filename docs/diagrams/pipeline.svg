@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 560" role="img" aria-labelledby="ptitle pdesc">
+  <title id="ptitle">Switchboard pipeline</title>
+  <desc id="pdesc">Pi sessions register with a self-hosted Erlang hub. Peers discover each other, send notices into a local inbox, and may request prompt or steering only when the receiver has granted consent. An optional dashboard observes the fleet.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1100" height="560" rx="24" fill="#0b1220"/>
+  <rect x="16" y="16" width="1068" height="528" rx="18" fill="none" stroke="#334155" stroke-width="2"/>
+
+  <g font-family="Noto Sans, Arial, Helvetica, sans-serif">
+    <rect x="40" y="44" width="220" height="96" rx="14" fill="#1e293b" stroke="#22d3ee" stroke-width="2"/>
+    <text x="150" y="80" text-anchor="middle" fill="#94a3b8" font-size="12" letter-spacing="1.5">PI SESSION</text>
+    <text x="150" y="110" text-anchor="middle" fill="#f8fafc" font-size="18" font-weight="700">Registers</text>
+
+    <line x1="260" y1="92" x2="318" y2="92" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="326" y="36" width="448" height="112" rx="14" fill="#1e293b" stroke="#22d3ee" stroke-width="2"/>
+    <text x="550" y="76" text-anchor="middle" fill="#22d3ee" font-size="12" letter-spacing="1.5">SELF-HOSTED HUB</text>
+    <text x="550" y="108" text-anchor="middle" fill="#f8fafc" font-size="20" font-weight="700">Erlang/OTP  HTTP + SSE</text>
+
+    <line x1="774" y1="92" x2="832" y2="92" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="840" y="44" width="220" height="96" rx="14" fill="#1e293b" stroke="#22d3ee" stroke-width="2"/>
+    <text x="950" y="80" text-anchor="middle" fill="#94a3b8" font-size="12" letter-spacing="1.5">PI SESSION</text>
+    <text x="950" y="110" text-anchor="middle" fill="#f8fafc" font-size="18" font-weight="700">Discovers</text>
+
+    <line x1="550" y1="148" x2="550" y2="196" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="40" y="208" width="330" height="196" rx="16" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
+    <text x="64" y="248" fill="#34d399" font-size="13" letter-spacing="2">NOTICE</text>
+    <text x="64" y="284" fill="#f8fafc" font-size="20" font-weight="700">Local inbox</text>
+    <text x="64" y="320" fill="#cbd5e1" font-size="15">Does not start a model turn.</text>
+    <text x="64" y="346" fill="#cbd5e1" font-size="15">Pending notices join context</text>
+    <text x="64" y="370" fill="#cbd5e1" font-size="15">on a later idle prompt.</text>
+
+    <rect x="386" y="208" width="330" height="196" rx="16" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+    <text x="410" y="248" fill="#fbbf24" font-size="13" letter-spacing="2">PROMPT / STEER</text>
+    <text x="410" y="284" fill="#f8fafc" font-size="20" font-weight="700">Receiver consent</text>
+    <text x="410" y="320" fill="#cbd5e1" font-size="15">Off by default every runtime.</text>
+    <text x="410" y="346" fill="#cbd5e1" font-size="15">Local confirmation required.</text>
+    <text x="410" y="370" fill="#cbd5e1" font-size="15">No tool can enable it.</text>
+
+    <rect x="732" y="208" width="328" height="196" rx="16" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+    <text x="756" y="248" fill="#818cf8" font-size="13" letter-spacing="2">DASHBOARD</text>
+    <text x="756" y="284" fill="#f8fafc" font-size="20" font-weight="700">/dashboard/</text>
+    <text x="756" y="320" fill="#cbd5e1" font-size="15">Loopback or verified tailnet.</text>
+    <text x="756" y="346" fill="#cbd5e1" font-size="15">Observes; cannot grant consent.</text>
+    <text x="756" y="370" fill="#cbd5e1" font-size="15">Relay token stays out of browser.</text>
+
+    <text x="40" y="452" fill="#94a3b8" font-size="15">Trust: shared bearer token. Token holders can see presence and impersonate peers.</text>
+    <text x="40" y="480" fill="#94a3b8" font-size="15">Listen on a trusted tailnet and host firewall, not the public Internet.</text>
+    <text x="40" y="508" fill="#94a3b8" font-size="15">Hub restart loses mail. Client reload loses inbox and consent.</text>
+  </g>
+</svg>
