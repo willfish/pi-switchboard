@@ -10,6 +10,8 @@ import {
   MAX_WORK_OWNER_BYTES,
   MAX_WORK_REF_BYTES,
   MAX_WORK_TEXT_BYTES,
+  normalizeWorkReport,
+  stableWorkUuid,
   type WorkSnapshot,
 } from "../extension/operator-protocol.ts";
 import { MAX_ENVELOPE_BYTES } from "../extension/protocol.ts";
@@ -101,4 +103,34 @@ it("enforces byte bounds, not code-point counts, and a 32KiB envelope", () => {
   const oversize = new Uint8Array(MAX_ENVELOPE_BYTES + 1);
   oversize.fill(0x20);
   assert.throws(() => decodeWorkSnapshot(oversize));
+});
+
+it("maps slugs and ignores empty extra or partial model reports without loosening the wire codec", () => {
+  const slug = "pr-1453-review";
+  const mapped = normalizeWorkReport({
+    workId: slug, parentWorkId: "ai-1287", delegatedWorkId: "",
+    objective: " Review PR 1453 ", phase: "planningx", currentStep: "",
+    extra: true, body: "secret",
+    evidence: [{ kind: "file", ref: "README.md", nested: true }, { kind: "nope", ref: "x" }],
+    blocker: { kind: "blocked", reason: "need a decision", extra: 1 },
+  });
+  assert.ok(mapped);
+  assert.equal(mapped.workId, stableWorkUuid(slug));
+  assert.equal(mapped.parentWorkId, stableWorkUuid("ai-1287"));
+  assert.equal(mapped.delegatedWorkId, null);
+  assert.equal(mapped.objective, "Review PR 1453");
+  assert.equal(mapped.phase, null);
+  assert.equal(mapped.currentStep, null);
+  assert.deepEqual(mapped.evidence, [{ kind: "file", ref: "README.md" }]);
+  assert.deepEqual(mapped.blocker, { kind: "blocked", reason: "need a decision" });
+  assert.equal("extra" in mapped, false);
+  assert.equal("body" in mapped, false);
+  assert.equal(isWorkSnapshot(mapped), true);
+  assert.equal(isWorkSnapshot({ ...fixtures.allNull, workId: slug }), false);
+  assert.deepEqual(normalizeWorkReport({}), fixtures.allNull);
+  assert.equal(normalizeWorkReport(null), undefined);
+  assert.equal(normalizeWorkReport([]), undefined);
+  const uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  assert.equal(normalizeWorkReport({ workId: uuid })?.workId, uuid);
+  assert.equal(stableWorkUuid(slug), stableWorkUuid(slug));
 });

@@ -7,15 +7,15 @@ import { describeOutcome, formatAgentList } from "./commands.ts";
 export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
   const nullableText = () => Type.Union([Type.String(), Type.Null()]);
   pi.registerTool({ name: 'report_work', label: 'Report work',
-    description: 'Record explicit work metadata for the console. Use a stable UUID workId and null for unknown fields. No credentials, hidden reasoning or raw tool output. This reports work; it does not grant permissions or prove completion.',
+    description: 'Record explicit work metadata for the console. Prefer a stable UUID workId; other ids map to a stable UUID. Use null for unknown fields. Missing fields, empty strings and extra keys are ignored. No credentials, hidden reasoning or raw tool output. This reports work; it does not grant permissions or prove completion.',
     parameters: Type.Object({
-      workId: nullableText(), objective: nullableText(),
-      phase: Type.Union([StringEnum(['planning', 'implementing', 'verifying', 'waiting', 'completed', 'failed'] as const), Type.Null()]),
-      currentStep: nullableText(), nextStep: nullableText(), owner: nullableText(),
-      blocker: Type.Union([Type.Object({ kind: StringEnum(['blocked', 'decision'] as const), reason: Type.String() }), Type.Null()]),
-      project: nullableText(), repository: nullableText(), branch: nullableText(), worktree: nullableText(),
-      parentWorkId: nullableText(), delegatedWorkId: nullableText(),
-      evidence: Type.Array(Type.Object({ kind: StringEnum(['file', 'test', 'commit', 'artifact'] as const), ref: Type.String() }), { maxItems: 8 }),
+      workId: Type.Optional(nullableText()), objective: Type.Optional(nullableText()),
+      phase: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+      currentStep: Type.Optional(nullableText()), nextStep: Type.Optional(nullableText()), owner: Type.Optional(nullableText()),
+      blocker: Type.Optional(Type.Union([Type.Object({ kind: Type.String(), reason: Type.String() }), Type.Null()])),
+      project: Type.Optional(nullableText()), repository: Type.Optional(nullableText()), branch: Type.Optional(nullableText()), worktree: Type.Optional(nullableText()),
+      parentWorkId: Type.Optional(nullableText()), delegatedWorkId: Type.Optional(nullableText()),
+      evidence: Type.Optional(Type.Array(Type.Object({ kind: Type.String(), ref: Type.String() }), { maxItems: 8 })),
     }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error('cancelled');

@@ -38,7 +38,7 @@ Peer-message previews require both current sender and recipient registrations to
 
 Fleet shows reported objectives, phases, current steps, last observed events and receiving state. Group by project/work and filter host, model, reported owner/team, capability or watchlist. An explicit blocker or decision request is attention-worthy; a busy runtime or a recent heartbeat is not proof of progress.
 
-`report_work` records a complete structured work snapshot. Use stable work IDs, null for unknown values and explicit evidence references. Reports persist on the active saved-session branch and synchronize independently of lease renewal. A reported completion is not independently verified completion.
+`report_work` records a structured work snapshot. Non-UUID ids are mapped to a stable UUID. Empty strings, missing fields and extra keys are ignored. If the session has no explicit label or distinct session name, the objective becomes the presence label. Reports persist on the active saved-session branch and synchronize independently of lease renewal. A reported completion is not independently verified completion.
 
 The inspector preserves the selected runtime and saved-session identity. It has Overview, Conversation, Session, Changes and Activity views. Ownership/delegation references and communications participants link back to their context. Shared-checkout changes are not automatically attributed to an agent.
 

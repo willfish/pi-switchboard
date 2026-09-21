@@ -6,7 +6,7 @@ import { createInboxState, receive, takeNoticeBatch, consumeUserMessage, markRea
 import { DEFAULT_URL, parseHubUrl, decodeServerMessage, isPublicAgent, cwdBasename, resolveTarget, parseTell, type Agent, type SendKind, type SendOutcome } from "./protocol.ts";
 import { describeOutcome, formatAgentList } from "./commands.ts";
 import { createAnnouncer } from './operator-announcer.ts';
-import { isWorkSnapshot, type WorkSnapshot } from './operator-protocol.ts';
+import { isWorkSnapshot, normalizeWorkReport, type WorkSnapshot } from './operator-protocol.ts';
 import type { OperatorBinding, OperatorPermissions } from './operator-binding.ts';
 import { createOperatorBridge, bridgeCapabilities } from './operator-bridge.ts';
 
@@ -404,11 +404,24 @@ export function createRuntime(deps: AgentBusDeps) {
     reportWork(work: unknown): WorkSnapshot | string {
       const r = current;
       if (!r || !active(r)) return 'agent bus unavailable';
-      if (!isWorkSnapshot(work)) return 'invalid work report';
-      const captured = structuredClone(work);
-      deps.pi?.appendEntry(WORK_ENTRY, { work: captured });
-      r.work = captured; requestPut(r);
-      return structuredClone(captured);
+      const captured = normalizeWorkReport(work);
+      if (!captured) return 'invalid work report';
+      const stored = structuredClone(captured);
+      deps.pi?.appendEntry(WORK_ENTRY, { work: stored });
+      r.work = stored;
+      if (!r.explicitLabel && stored.objective) {
+        const folder = projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
+        const session = projectName(deps.pi?.getSessionName() ?? "");
+        if (!session || session === folder) {
+          const label = validateLabel(Array.from(stored.objective).slice(0, 200).join(""));
+          if (label) {
+            deps.pi?.appendEntry(LABEL_ENTRY, { label });
+            r.explicitLabel = label;
+          }
+        }
+      }
+      requestPut(r);
+      return structuredClone(stored);
     },
     currentWork: () => current ? structuredClone(current.work) : emptyWork(),
     async consent(enable: boolean, ctx: ExtensionContext): Promise<string> {
