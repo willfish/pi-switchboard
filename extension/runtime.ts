@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext, MessageStartEvent } from "@earendi
 import { createHubClient, type FetchLike, type HubClient, type Timers } from "./client.ts";
 import { subscribeOnce, type BusFrame } from "./sse.ts";
 import { createPresenceState, reducePresence, type PresenceState } from "./presence.ts";
-import { createInboxState, receive, takeNoticeBatch, consumeUserMessage, markRead, type InboxState } from "./inbox.ts";
+import { claimNoticeDelivery, createInboxState, receive, takeNoticeBatch, consumeUserMessage, markRead, type InboxState, type PendingControl } from "./inbox.ts";
 import { DEFAULT_URL, parseHubUrl, decodeServerMessage, isPublicAgent, cwdBasename, resolveTarget, parseTell, type Agent, type SendKind, type SendOutcome } from "./protocol.ts";
 import { describeOutcome, formatAgentList } from "./commands.ts";
 import { createAnnouncer } from './operator-announcer.ts';
@@ -140,8 +140,11 @@ export function createRuntime(deps: AgentBusDeps) {
     status(r, "down"); notify(r, r.error, "error");
   }
   function metadata(r: Run): Record<string, unknown> | undefined {
-    r.projectedName = projectName(deps.pi?.getSessionName() ?? "") || projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd)) || "Pi session";
-    r.label = r.explicitLabel ?? r.projectedName;
+    const session = projectName(deps.pi?.getSessionName() ?? "");
+    const folder = projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
+    r.projectedName = session || folder || "Pi session";
+    const generic = !session || session === folder;
+    r.label = r.explicitLabel ?? (generic ? taskLabel(r.work) : undefined) ?? r.projectedName;
     const doc = { agentId: r.id, sessionId: r.sessionId, host: deps.hostname?.() ?? "unknown",
       cwd: deps.cwd?.() ?? r.ctx.cwd, sessionName: r.projectedName, label: r.label,
       model: r.model,
@@ -232,10 +235,7 @@ export function createRuntime(deps: AgentBusDeps) {
               if (r.inbox.nextReceipt !== before.nextReceipt) r.arrivals++;
               r.warnings += result.warnings.reduce((count, warning) => count + warning.count, 0);
               scheduleBurst(r);
-              if (result.control && valid() && r.control) {
-                try { deps.pi?.sendUserMessage(result.control.text, { deliverAs: result.control.kind === "prompt" ? "followUp" : "steer", expandPromptTemplates: false }); }
-                catch { r.error = "control injection attempted; awaiting exact user message, reload to recover"; notify(r, r.error, "warning"); }
-              }
+              if (valid()) deliverIncoming(r, result.control);
             } else {
               r.presence = reducePresence(r.presence, frame.event, frame.data, now());
               if (r.presence.reconnect) return false;
@@ -251,6 +251,34 @@ export function createRuntime(deps: AgentBusDeps) {
       r.stream = undefined; stream.abort(); r.healthySince = undefined;
       r.error = "receive stream unavailable"; refreshHealth(r); scheduleRetry(r);
     })();
+  }
+  function deliverControl(r: Run, control: PendingControl | undefined) {
+    if (!control) return;
+    const busy = r.busy || !r.ctx.isIdle();
+    try {
+      deps.pi?.sendUserMessage(control.text, { deliverAs: busy || control.kind === "steer" ? "steer" : "followUp", expandPromptTemplates: false });
+      if (busy && control.kind !== "steer") deps.pi?.sendUserMessage(control.text, { deliverAs: "followUp", expandPromptTemplates: false });
+    } catch {
+      r.error = "message delivery attempted; awaiting exact user message, reload to recover";
+      notify(r, r.error, "warning");
+    }
+  }
+  function deliverIncoming(r: Run, control?: PendingControl) {
+    if (control) { deliverControl(r, control); return; }
+    const claimed = claimNoticeDelivery(r.inbox);
+    r.inbox = claimed.state;
+    deliverControl(r, claimed.control);
+  }
+  function taskLabel(work: WorkSnapshot): string | undefined {
+    const text = [work.objective, work.currentStep].filter((part): part is string => !!part).join(": ");
+    return text ? validateLabel(Array.from(text).slice(0, 200).join("")) : undefined;
+  }
+  function publishPromptWork(r: Run, text: string) {
+    if (text.startsWith("Agent bus ") || text.startsWith("[Network-authorized operator")) return;
+    const step = Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 180).join("");
+    if (!step) return;
+    r.work = { ...r.work, objective: r.work.objective ?? step, currentStep: step, phase: r.work.phase ?? "implementing" };
+    metadata(r); requestPut(r); void r.announcer?.tick();
   }
   function scheduleBurst(r: Run) {
     if (r.burst !== undefined || (!r.arrivals && !r.warnings)) return;
@@ -302,7 +330,7 @@ export function createRuntime(deps: AgentBusDeps) {
         control: false, consentGeneration: 0, status: "connecting", work: restoreWork(ctx),
         sessionGeneration: 1n, permissionRevision: 0n, branchId: branchAnchor(ctx), runId: ctx.isIdle() ? null : uuid(),
         operatorRead: env.PI_AGENT_BUS_OPERATOR_READ === '1', operatorManage: false,
-        operatorNotice: env.PI_AGENT_BUS_OPERATOR_NOTICES === '1', operatorHistory: env.PI_AGENT_BUS_OPERATOR_HISTORY === '1',
+        operatorNotice: env.PI_AGENT_BUS_OPERATOR_NOTICES !== '0', operatorHistory: env.PI_AGENT_BUS_OPERATOR_HISTORY === '1',
         operatorConsentGeneration: 0 };
       current = r;
       r.announcer = createAnnouncer({ now,
@@ -367,7 +395,16 @@ export function createRuntime(deps: AgentBusDeps) {
       const r = current; if (!r || !active(r)) return;
       r.bridge?.message(message);
       const text = normalizedUserText(message);
-      if (text !== undefined) r.inbox = consumeUserMessage(r.inbox, text);
+      if (text !== undefined) {
+        const hadSlot = r.inbox.pendingControl !== null;
+        r.inbox = consumeUserMessage(r.inbox, text);
+        publishPromptWork(r, text);
+        if (hadSlot && !r.inbox.pendingControl) {
+          const claimed = claimNoticeDelivery(r.inbox);
+          r.inbox = claimed.state;
+          deliverControl(r, claimed.control);
+        }
+      }
     },
     async list(signal?: AbortSignal) {
       const r = current;
@@ -388,7 +425,10 @@ export function createRuntime(deps: AgentBusDeps) {
       if (!online(r)) return { status: "not_sent", reason: "agent bus unavailable" };
       const resolved = resolveTarget(to, listed.agents, r.id);
       if ("error" in resolved) return { status: "not_sent", reason: `${resolved.error}${resolved.candidates.length ? `: ${resolved.candidates.map(a => a.agentId).join(", ")}` : ""}` };
-      const result = await r.client.send({ id: uuid(), from: r.id, to: resolved.ok.agentId, body, kind }, signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+      const work = [r.work.objective, r.work.phase, r.work.currentStep].filter(Boolean).join(" | ");
+      const context = work ? `\n\nSender is working on: ${work}` : "";
+      const delivered = new TextEncoder().encode(body + context).length <= 16 * 1024 ? body + context : body;
+      const result = await r.client.send({ id: uuid(), from: r.id, to: resolved.ok.agentId, body: delivered, kind }, signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
       // The one attempt remains uncertain/accepted even if its session was closed. No new effects follow.
       if (!active(r)) return result;
       return result;
@@ -460,7 +500,7 @@ export function createRuntime(deps: AgentBusDeps) {
         ? 'Allow permitted network operators to inspect bounded user-visible conversation from this loaded session? This explicitly enrolls that content for volatile inspection. Thinking, raw tool output and other saved sessions are excluded.'
         : scope === 'manage'
           ? 'Allow permitted network operators to assign structured work, change this runtime label and interrupt its selected active run? Interrupt is not rollback or process termination.'
-          : 'Allow permitted network operators to leave passive notices for this runtime? Notices do not start work, but may be included in a later run.';
+          : 'Allow permitted network operators to send messages to this runtime? A message is delivered immediately. A busy run is steered and a follow-up starts after it. This is on unless PI_AGENT_BUS_OPERATOR_NOTICES=0.';
       let approved = false;
       try { approved = await ctx.ui.confirm(`Enable operator ${scope}?`, `${explanation} This runtime only.`, { signal: confirmation.signal }); }
       catch { /* A failed dialog cannot grant permission. */ }

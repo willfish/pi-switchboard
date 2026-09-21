@@ -3,14 +3,14 @@ import { isWorkSnapshot } from './operator-work.js';
 
 const labels = { notice: "Send a message", work: "Ask agent to work", guidance: "Guide current work", label: "Rename agent", interrupt: "Stop current work" };
 const explanations = {
-  notice: "Leave a message for later. This won't start work, and we can't tell whether it has been read.",
+  notice: "Send a message. The agent receives it now. If it is working, the current run sees it and a follow-up starts after.",
   work: "Ask the agent to do something. It may start now or wait until its current work finishes.",
   guidance: "Send advice while the agent is working. It may not use it straight away, and you can't take it back.",
   label: "Change the name shown for this agent.",
   interrupt: "Ask the agent to stop its current work. Changes already made won't be undone, and messages already sent can't be taken back.",
 };
 const states = {
-  queued: "Waiting for the agent", accepted: "Agent received the request; waiting for an update", received: "Message reached the agent; reading isn't confirmed",
+  queued: "Waiting for the agent", accepted: "Agent received the request; waiting for an update", received: "Message reached the agent",
   attempted: "Passed to the agent; not confirmed in use", observed: "Message appeared in the conversation; use isn't confirmed",
   context_reserved: "Prepared for a later conversation; not yet confirmed there", labelled: "Agent renamed; the list may take a moment to update",
   work_assigned: "Task details saved; work hasn't necessarily started",

@@ -43,7 +43,7 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       const label = runtime.setLabel(params.label);
       return { content: [{ type: "text", text: label }], details: { label } };
     } });
-  pi.registerTool({ name: "send_agent_message", label: "Send agent message", description: "Send one best-effort notice (default), prompt or steer to a freshly resolved peer. Control requires receiver-local consent. Steer can affect active work. Acceptance is not delivery or execution; never automatically resend an uncertain outcome.",
+  pi.registerTool({ name: "send_agent_message", label: "Send agent message", description: "Send a message to a freshly resolved peer. The default message is delivered to that agent and starts or continues its work. Prompt and steer still require receiver control consent. Acceptance is not proof the peer finished the work; never automatically resend an uncertain outcome.",
     parameters: Type.Object({ to: Type.String(), body: Type.String(), kind: Type.Optional(StringEnum(["notice", "prompt", "steer"] as const)) }),
     async execute(_id, params, signal) {
       const result = await runtime.send(params.to, params.body, params.kind ?? "notice", signal);

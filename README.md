@@ -116,7 +116,7 @@ and rollout, and [compatibility](docs/compatibility.md) before upgrading Pi.
 | Command | Effect |
 | --- | --- |
 | `/agents` | Fresh discovery with readiness and control permission |
-| `/tell <target> <text>` | Send a notice (no model turn) |
+| `/tell <target> <text>` | Send a message. The peer receives it and can act |
 | `/tell --prompt <target> <text>` | Request a consenting peer's next prompt |
 | `/tell --steer <target> <text>` | Request steering; can affect active work |
 | `/label [text]` | Show or set work label; `--clear` restores the default |
@@ -147,7 +147,7 @@ not a retry.
 | --- | --- |
 | `/bus operator read on\|off` | Current-session inspection and content enrollment |
 | `/bus operator manage on\|off` | Typed work assignment, labels, run interruption |
-| `/bus operator notices on\|off` | Passive operator notices |
+| `/bus operator notices on\|off` | Dashboard messages. On by default; off stops them |
 | `/bus operator history on\|off` | Explicit volatile message-preview enrollment |
 
 Browser controls cannot grant these. Enabling through a command needs a local
@@ -161,7 +161,7 @@ TUI confirmation.
 
 | Kind | Starts work? | Needs consent? |
 | --- | --- | --- |
-| Notice | No. Bounded local inbox; joins context on a later idle prompt | No |
+| Message (`notice` on the wire) | Yes. Delivered immediately. A busy agent is steered and gets a follow-up | No |
 | Prompt | Requests the peer's next prompt | Yes |
 | Steer | Can affect active work | Yes |
 

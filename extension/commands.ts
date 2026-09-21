@@ -31,7 +31,7 @@ function agentLine(agent: Agent, selfId: string, short: string): string {
       : `${agent.model.provider}/${agent.model.id}`;
   const me = agent.agentId === selfId ? " (self)" : "";
   const ready = agent.receiving ? "receiving" : "not-receiving";
-  const control = agent.acceptsControl ? "control" : "notice-only";
+  const control = agent.acceptsControl ? "control" : "messages";
   return safeText(`${short}${me} ${agent.host} ${cwdBasename(agent.cwd)} ${agent.label} ${model} ${agent.status} ${ready} ${control}`).replace(/\n/g, "\\n");
 }
 
@@ -81,7 +81,7 @@ export function formatAgentList(agents: Agent[], selfId: string): string {
 export function bindCommands(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
   for (const name of ["label", "agents", "tell", "bus"] as const) {
     pi.registerCommand(name, {
-      description: name === "tell" ? "Send a notice, --prompt, or --steer (can affect active work)" : `Switchboard ${name}`,
+      description: name === "tell" ? "Send a message, --prompt, or --steer (can affect active work)" : `Switchboard ${name}`,
       getArgumentCompletions: prefix => {
         if (name === "tell") {
           const match = /^(--prompt\s+|--steer\s+|--\s+)?([^\s]*)$/.exec(prefix);

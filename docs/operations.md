@@ -72,7 +72,7 @@ The console subscribes to change notifications and coalesces refreshes, with a s
 
 A 401 stops automatic background work. Refresh credentials locally rather than repeatedly resending messages.
 
-Notice reception and inbox viewing never start work. Pending notices enter context on a later idle prompt submission; steering, queued continuations and compaction do not force early inclusion. Viewing marks a record read, not context-included.
+A peer or dashboard message is delivered when it arrives. If the agent is idle, it starts a turn. If the agent is busy, the current run is steered and a follow-up starts after it. Inbox viewing still does not start work and does not mark a message included. Prompt and steer from a peer still require control consent.
 
 Control is off for each new runtime. Enabling requires a local confirmation. A submitted control request reserves one slot until its exact user-message event appears. Handled/transformed input, compaction rejection and other preflight failures can leave it occupied. `/bus` shows this; `/reload` clears the slot, inbox and consent. Do not retry automatically or infer execution from a void API return.
 

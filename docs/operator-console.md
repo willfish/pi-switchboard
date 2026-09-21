@@ -11,7 +11,7 @@ Network access does not enable receiver permissions. Permissions start off unles
 | Command | Runtime-local permission |
 |---|---|
 | `/bus control on` | Work requests and best-effort guidance |
-| `/bus operator notices on` | Passive operator notices |
+| `/bus operator notices on` | Dashboard messages. On unless the launcher sets `PI_AGENT_BUS_OPERATOR_NOTICES=0` |
 | `/bus operator read on` | Bounded user-visible current-session inspection and its content enrollment |
 | `/bus operator manage on` | Work assignment, label changes and selected-run interruption |
 | `/bus operator history on` | Bounded message previews in volatile operator history |
@@ -28,7 +28,7 @@ export PI_AGENT_BUS_OPERATOR_READ=1
 export PI_AGENT_BUS_OPERATOR_HISTORY=1
 ```
 
-Each variable is independent. Only the exact value `1` enables it; unset, `0`, or other values leave it off. Reading also enrolls the loaded conversation's user-visible content for inspection. History allows bounded message previews to be retained, but does not recover older messages; peer message text requires both participants enrolled.
+Read and history stay off unless the variable is exactly `1`. Dashboard messages are on unless `PI_AGENT_BUS_OPERATOR_NOTICES` is exactly `0`. Reading also enrolls the loaded conversation's user-visible content for inspection. History allows bounded message previews to be retained, but does not recover older messages; peer message text requires both participants enrolled.
 
 These grants apply to every permitted network operator, not just one browser or person. Work/guidance and management still start off. Offline and non-interactive sessions remain disabled. After changing launcher settings, restart Pi; `/reload` alone cannot change the environment inherited by an existing process.
 
@@ -58,7 +58,7 @@ Drafts remain in page memory, pinned to runtime/session/work context. Context ch
 
 | Action | Meaning of an acknowledgement |
 |---|---|
-| Notice | Client receipt, context reservation and matching observation are separate; none is a human read receipt |
+| Message | Delivered to the agent immediately. A busy run is steered and a follow-up starts after it. Receipt is not proof the model used it |
 | Ask to work | Client receipt and SDK attempt do not prove run start or model consumption |
 | Guidance | Supported best-effort steering; no strict selected-run consumption or individual-message withdrawal |
 | Assign work | Client applied structured metadata; no model execution implied |

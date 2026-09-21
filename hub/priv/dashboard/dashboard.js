@@ -258,7 +258,7 @@ export function mountDashboard(doc, win) {
       card.inspect.setAttribute('aria-label', `Open details agent ${shortIds.get(a.agentId)}`);
       card.title.textContent = a.label;
       const reported = workViews.get(a.agentId)?.work;
-      card.objective.textContent = reported?.objective ?? "No task shared yet";
+      card.objective.textContent = reported?.objective ? [reported.objective, reported.currentStep].filter(Boolean).join(": ") : "No task shared yet";
       const state = agentState(a, reported);
       card.status.textContent = state.label; card.status.dataset.tone = state.tone; card.root.dataset.tone = state.tone;
       const last = lastEvents.get(a.agentId);

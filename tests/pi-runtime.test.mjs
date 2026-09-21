@@ -624,17 +624,17 @@ async function enableOperator(f, pi, agentId, scope) {
 test('actual Pi operator journey: passive notice, metadata assignment, label, session projection and exact-run abort', { timeout: 180000 }, async t => {
   const f = await setup(t, { operator: true }); const pi = await f.launch(); const agent = await f.receiving(pi.cwd);
   const initial = await f.work(agent.agentId);
-  assert.equal(initial.permissions.notice, false); assert.equal(initial.permissions.sessionRead, false); assert.equal(initial.permissions.history, false);
-  await enableOperator(f, pi, agent.agentId, 'notices');
+  assert.equal(initial.permissions.notice, true); assert.equal(initial.permissions.sessionRead, false); assert.equal(initial.permissions.history, false);
   const notice = await f.operate(agent.agentId, 'notice', { text: 'operator passive context marker' });
-  await f.operationState(notice.operationId, ['received']); assert.equal(f.modelProvider.requests.length, 0);
+  await f.operationState(notice.operationId, ['attempted', 'observed']);
+  await waitFor(() => f.modelProvider.requests.some(request => JSON.stringify(request.messages).includes('operator passive context marker')), 'operator message reached the model');
   await enableOperator(f, pi, agent.agentId, 'manage');
   const workFixtures = JSON.parse(await readFile(join(fixtures, '..', 'operator-work.json'), 'utf8'));
   const assigned = { ...workFixtures.allNull, workId: randomUUID(), objective: 'Synthetic operator objective', currentStep: 'Inspect', nextStep: 'Verify' };
   const assignment = await f.operate(agent.agentId, 'workAssign', { work: assigned });
   await f.operationState(assignment.operationId, ['work_assigned']);
   await waitFor(async () => (await f.work(agent.agentId)).work.workId === assigned.workId, 'assigned work advertised');
-  assert.equal(f.modelProvider.requests.length, 0);
+  assert.ok(f.modelProvider.requests.length >= 1);
   const label = await f.operate(agent.agentId, 'label', { label: 'Operator label' });
   await f.operationState(label.operationId, ['labelled']);
   await waitFor(async () => (await f.agents()).some(a => a.agentId === agent.agentId && a.label === 'Operator label'), 'label in actual presence');

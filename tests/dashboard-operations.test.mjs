@@ -9,7 +9,7 @@ const view = { binding: { agentId: id, sessionId: id, bindingId: other, runtimeG
   work: { workId: null }, permissions: { notice: true, sessionRead: true, content: false, interrupt: true } };
 const status = (operationId = id) => ({ schemaVersion: 1, operationId, kind: 'notice', agentId: id, sessionId: id, bindingId: other,
   runtimeGeneration: '1', sessionGeneration: '2', branchId: null, runId: null, workId: null, state: 'queued',
-  createdAt: '1000', deadline: '25000', expiresAt: '25000', unsupportedWithdrawal: false, unsupported: ['notice_not_executed'], page: null });
+  createdAt: '1000', deadline: '25000', expiresAt: '25000', unsupportedWithdrawal: false, unsupported: ['message_starts_or_steers', 'attempted_not_consumed', 'no_auto_resend'], page: null });
 const encode = v => new TextEncoder().encode(JSON.stringify(v));
 test('intent pins exact context and does not derive permission from unrelated flags', () => {
   assert.equal(canAct(view, 'notice'), true); assert.equal(canAct(view, 'sessionRead'), false);

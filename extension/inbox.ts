@@ -101,6 +101,15 @@ export function receive(state: InboxState, mail: ServerMessage, clocks: InboxClo
   return control ? { state: next, control, warnings } : result();
 }
 
+/** Deliver queued peer messages now. Does not wait for a later local prompt. */
+export function claimNoticeDelivery(state: InboxState): { state: InboxState; control?: PendingControl } {
+  if (state.pendingControl) return { state };
+  const batch = takeNoticeBatch(state);
+  if (!batch.message) return { state: batch.state };
+  const control = Object.freeze({ key: batch.message.details.records[0].key, kind: "prompt" as const, text: batch.message.content });
+  return { state: Object.freeze({ ...batch.state, pendingControl: control }), control };
+}
+
 export function takeNoticeBatch(state: InboxState): NoticeBatchResult {
   const selected = new Set<string>();
   const contents: string[] = [];

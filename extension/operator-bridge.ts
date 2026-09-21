@@ -66,13 +66,15 @@ export function createOperatorBridge(options: {
     const c = options.current();
     try {
       if (d.kind === 'notice') {
-        notices.push({ descriptor: d, text: `[Network-authorized operator notice ${d.operationId}]\n${result.body}` });
-        c.ctx.ui.notify('Switchboard: operator notice received. It will be reserved for a later run.', 'info');
+        const text = `[Network-authorized operator message ${d.operationId}]\n${result.body}`;
+        pendingInputs.set(d.operationId, { descriptor: d, text });
+        report(d, 'attempted');
+        const busy = !c.ctx.isIdle();
+        options.pi.sendUserMessage(text, { deliverAs: busy ? 'steer' : 'followUp', expandPromptTemplates: false });
+        if (busy) options.pi.sendUserMessage(text, { deliverAs: 'followUp', expandPromptTemplates: false });
       } else if (d.kind === 'work' || d.kind === 'guidance') {
         const text = `[Network-authorized operator ${d.kind} ${d.operationId}]\n${result.body}`;
         pendingInputs.set(d.operationId, { descriptor: d, text });
-        // Queue the result before SDK callbacks can synchronously observe input;
-        // the actual HTTP dispatch is a later microtask, after the SDK attempt.
         report(d, 'attempted');
         options.pi.sendUserMessage(text, { deliverAs: d.kind === 'guidance' ? 'steer' : 'followUp', expandPromptTemplates: false });
       } else if (d.kind === 'label') {

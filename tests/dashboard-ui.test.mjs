@@ -429,7 +429,7 @@ test('fleet work, attention, permission-gated notice and changed-target confirma
       const request = JSON.parse(options.body); creates.push(request);
       const { payload, ...rest } = request;
       return new Response(JSON.stringify({ ...rest, sessionId: id(999), state: 'received', createdAt: String(Date.now()),
-        expiresAt: request.deadline, unsupportedWithdrawal: false, unsupported: ['notice_not_executed'], page: null }));
+        expiresAt: request.deadline, unsupportedWithdrawal: false, unsupported: ['message_starts_or_steers', 'attempted_not_consumed', 'no_auto_resend'], page: null }));
     }
     throw new Error('unexpected route');
   };
@@ -444,7 +444,7 @@ test('fleet work, attention, permission-gated notice and changed-target confirma
     el('operation-send').fire('click'); await settle(); await settle(); await settle();
     assert.equal(creates.length, 1); assert.equal(creates[0].agentId, id(1));
     assert.equal(creates[0].workId, fixtures.populated.workId); assert.equal(creates[0].kind, 'notice');
-    assert.match(el('operation-list').textContent, /Message reached the agent; reading isn.t confirmed/);
+    assert.match(el('operation-list').textContent, /Message reached the agent/);
     el('operation-text').value = 'A second draft'; el('operation-text').fire('input'); revision = '2';
     el('inspector-refresh').fire('click'); await settle(); await settle();
     assert.equal(el('operation-send').disabled, true); assert.equal(el('operation-confirm-target').hidden, false);

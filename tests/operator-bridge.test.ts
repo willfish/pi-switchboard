@@ -85,12 +85,14 @@ test('label and structured assignment use typed local handlers, not prompts', as
   assert.deepEqual(a.workReports, [work]); assert.equal(a.sdkCalls.length, 0);
   assert.equal((a.reports.at(-1) as any).status, 'work_assigned'); a.bridge.stop();
 });
-test('notice receipt, reservation and observation remain separate and passive', async () => {
+test('operator message is delivered immediately and observed when it appears', async () => {
   const f = fixture('notice', 'x'.repeat(16384)); await f.bridge.tick(); await flush();
-  assert.deepEqual(f.reports.map(r => (r as any).status), ['received']); assert.equal(f.sdkCalls.length, 0);
-  const text = f.bridge.takeNotices(); assert.ok(text.includes('x'.repeat(16384))); await flush();
-  assert.equal((f.reports.at(-1) as any).status, 'context_reserved');
-  f.bridge.message({ role: 'custom', customType: 'agent-bus-mail', content: text, display: true, timestamp: 0 } as any);
+  assert.equal(f.sdkCalls.length, 2);
+  assert.equal((f.sdkCalls[0] as any).options.deliverAs, 'steer');
+  assert.equal((f.sdkCalls[1] as any).options.deliverAs, 'followUp');
+  assert.ok((f.sdkCalls[0] as any).text.includes('x'.repeat(16384)));
+  assert.equal((f.reports.at(-1) as any).status, 'attempted');
+  f.bridge.message({ role: 'user', content: (f.sdkCalls[0] as any).text, timestamp: 0 } as any);
   await flush(); assert.equal((f.reports.at(-1) as any).status, 'observed'); f.bridge.stop();
 });
 test('interrupt reports request before matching synchronous settlement, never kill', async () => {

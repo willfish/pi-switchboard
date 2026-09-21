@@ -20,20 +20,20 @@ function fixture() {
   return { sdk, clock, runtime, ctx, mail, notices, stream: () => options };
 }
 
-it("notice receipt and human reading never inject; before_agent_start alone reserves a FIFO bounded batch", async () => {
+it("peer message is delivered immediately and does not wait for a local prompt", async () => {
   const f = fixture(); await flush();
-  f.mail("notice", "a".repeat(10000)); f.mail("notice", "b".repeat(10000));
-  assert.equal(f.sdk.injected.length, 0); assert.equal(f.runtime.inbox().records.length, 2);
-  f.runtime.markRead("1"); assert.equal(f.runtime.inbox().records[0].handling, "pending_context");
-  f.sdk.events.get("agent_start")!({}, f.ctx); f.sdk.events.get("agent_settled")!({}, f.ctx);
-  assert.ok(f.runtime.inbox().records.every(record => record.handling === "pending_context"));
-  const first = f.sdk.events.get("before_agent_start")!({}, f.ctx);
-  assert.equal(first.message.customType, "agent-bus-mail"); assert.equal(first.message.display, true);
-  assert.ok(first.message.content.includes("a".repeat(10000))); assert.ok(!first.message.content.includes("b".repeat(10000)));
+  f.mail("notice", "a".repeat(10000));
+  assert.equal(f.sdk.injected.length, 1);
+  assert.equal(f.sdk.injected[0].options.deliverAs, "followUp");
+  assert.ok(f.sdk.injected[0].text.includes("a".repeat(10000)));
   assert.equal(f.runtime.inbox().records[0].handling, "context_inclusion_attempted");
+  f.mail("notice", "b".repeat(10000));
+  assert.equal(f.sdk.injected.length, 1, "a second message waits until the first delivery is observed");
   assert.equal(f.runtime.inbox().records[1].handling, "pending_context");
-  const second = f.runtime.beforeAgentStart(); assert.ok(second?.message.content.includes("b".repeat(10000)));
-  assert.equal(f.runtime.inbox().records[1].humanRead, false); assert.equal(f.runtime.beforeAgentStart(), undefined);
+  f.runtime.messageStart({ role: "user", content: f.sdk.injected[0].text, timestamp: 0 });
+  assert.equal(f.sdk.injected.length, 2);
+  assert.ok(f.sdk.injected[1].text.includes("b".repeat(10000)));
+  assert.equal(f.runtime.beforeAgentStart(), undefined);
   await f.runtime.sessionShutdown();
 });
 
@@ -114,7 +114,9 @@ it("dedup suppresses repeated effects, burst notifications use counts, all-pendi
   await f.clock.advance(250); assert.match(f.notices.find(text => text.includes("mail arrivals"))!, /1 mail arrivals/);
   for (let n = 0; n < 31; n++) f.mail();
   await f.runtime.consent(true, f.ctx); f.mail("prompt", "DO_NOT_INJECT");
-  assert.equal(f.runtime.inbox().records.length, 32); assert.equal(f.sdk.injected.length, 0);
+  assert.equal(f.runtime.inbox().records.length, 32); assert.equal(f.sdk.injected.length, 1);
+  assert.ok(f.sdk.injected[0].text.includes("PRIVATE_BODY"));
+  assert.ok(f.sdk.injected.every(item => !item.text.includes("DO_NOT_INJECT")));
   await f.clock.advance(250); assert.ok(f.notices.some(text => text.includes("discard/capacity warnings")));
   assert.ok(f.notices.every(text => !text.includes("PRIVATE_BODY") && !text.includes("DO_NOT_INJECT")));
   await f.runtime.sessionShutdown();

@@ -396,7 +396,7 @@ mutating(<<"sessionRead">>) -> false;
 mutating(<<"notice">>) -> false;
 mutating(_) -> true.
 
-result_states(<<"notice">>) -> [<<"context_reserved">>, <<"observed">>, <<"unknown">>];
+result_states(<<"notice">>) -> [<<"attempted">>, <<"observed">>, <<"context_reserved">>, <<"unknown">>];
 result_states(<<"workAssign">>) -> [<<"work_assigned">>, <<"unknown">>];
 result_states(<<"work">>) -> [<<"attempted">>, <<"observed">>, <<"unknown">>];
 result_states(<<"guidance">>) -> [<<"attempted">>, <<"observed">>, <<"unknown">>];
@@ -610,8 +610,8 @@ ack(Op) ->
       <<"state">> => maps:get(state, Op)}.
 
 notes(<<"notice">>) ->
-    [<<"notice_not_executed">>, <<"no_read_receipt_inferred">>,
-     <<"context_reserved_not_model_use">>];
+    [<<"message_starts_or_steers">>, <<"attempted_not_consumed">>,
+     <<"no_auto_resend">>];
 notes(<<"work">>) ->
     [<<"work_request_not_run_start_proof">>, <<"attempted_not_queued">>, <<"sdk_void_not_queued">>];
 notes(<<"guidance">>) ->

@@ -67,7 +67,8 @@ test('invalid startup values fail closed and command enabling still requires con
     try {
       await settle();
       const p = JSON.parse(f.calls.find(c => c.path === '/v1/operator/announce')!.body!).permissions;
-      assert.ok(Object.values(p).every(v => v === false));
+      assert.equal(p.notice, true);
+      assert.ok(Object.entries(p).filter(([key]) => key !== 'notice').every(([, value]) => value === false));
       await f.runtime.operatorConsent('read', true, f.ctx);
       assert.equal(f.confirmations(), 1);
       assert.match(f.runtime.statusText(), /operator-read=off/);
