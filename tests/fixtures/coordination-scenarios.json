@@ -1,0 +1,340 @@
+{
+  "note": "Adjudicated calibration fixtures. Not observed model behaviour and not a policy engine.",
+  "scenarios": [
+    {
+      "id": "independent-silence",
+      "agents": [
+        { "id": "builder", "role": "builder" },
+        { "id": "tester", "role": "tester" }
+      ],
+      "facts": [
+        { "id": "local-edit", "kind": "routine", "holders": ["builder"], "decisionChanging": false, "authorizes": false }
+      ],
+      "dependencies": [],
+      "gates": [],
+      "nonAuthorizingFactIds": [],
+      "traces": [
+        {
+          "id": "always_silent",
+          "policy": "always_silent",
+          "events": [{ "seq": 1, "type": "act", "agent": "builder", "action": "edit_private" }]
+        },
+        {
+          "id": "status_after_every_action",
+          "policy": "status_after_every_action",
+          "events": [
+            { "seq": 1, "type": "act", "agent": "builder", "action": "edit_private" },
+            { "seq": 2, "type": "send", "agent": "builder", "messageId": "st-ind", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "status", "factIds": [] }
+          ]
+        },
+        {
+          "id": "dependency_aware",
+          "policy": "dependency_aware",
+          "events": [{ "seq": 1, "type": "act", "agent": "builder", "action": "edit_private" }]
+        }
+      ]
+    },
+    {
+      "id": "worktree-interface-contract",
+      "agents": [
+        { "id": "builder", "role": "builder", "worktree": true },
+        { "id": "tester", "role": "tester", "worktree": true }
+      ],
+      "facts": [
+        { "id": "crlf-split", "kind": "interface", "holders": ["builder"], "decisionChanging": true, "authorizes": false }
+      ],
+      "dependencies": [
+        {
+          "id": "parser-contract",
+          "factId": "crlf-split",
+          "consumers": ["tester"],
+          "consequential": true,
+          "closure": "none",
+          "requiredEvidence": [],
+          "allowedScopes": [
+            { "transport": "direct", "recipients": ["tester"] },
+            { "transport": "channel", "channel": "pi-switchboard" }
+          ]
+        }
+      ],
+      "gates": [],
+      "nonAuthorizingFactIds": [],
+      "traces": [
+        {
+          "id": "always_silent",
+          "policy": "always_silent",
+          "events": [{ "seq": 1, "type": "act", "agent": "builder", "action": "commit" }]
+        },
+        {
+          "id": "status_after_every_action",
+          "policy": "status_after_every_action",
+          "events": [
+            { "seq": 1, "type": "act", "agent": "builder", "action": "commit" },
+            { "seq": 2, "type": "send", "agent": "builder", "messageId": "st-wt", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "status", "factIds": [] }
+          ]
+        },
+        {
+          "id": "dependency_aware",
+          "policy": "dependency_aware",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "builder", "messageId": "c1", "transport": "direct", "recipients": ["tester"], "purpose": "contract", "factIds": ["crlf-split"] },
+            { "seq": 2, "type": "transport_accept", "messageId": "c1" },
+            { "seq": 3, "type": "observe", "agent": "tester", "messageId": "c1" }
+          ]
+        },
+        {
+          "id": "misrouted_general",
+          "policy": "contrast",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "builder", "messageId": "g1", "transport": "channel", "channel": "general", "recipients": [], "purpose": "contract", "factIds": ["crlf-split"] },
+            { "seq": 2, "type": "transport_accept", "messageId": "g1" },
+            { "seq": 3, "type": "observe", "agent": "tester", "messageId": "g1" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "unique-scout-discovery",
+      "agents": [
+        { "id": "scout", "role": "scout" },
+        { "id": "planner", "role": "planner" },
+        { "id": "builder", "role": "builder" }
+      ],
+      "facts": [
+        { "id": "unique-finding", "kind": "discovery", "holders": ["scout"], "decisionChanging": true, "authorizes": false }
+      ],
+      "dependencies": [
+        {
+          "id": "scout-finding",
+          "factId": "unique-finding",
+          "consumers": ["planner", "builder"],
+          "consequential": true,
+          "closure": "none",
+          "requiredEvidence": [],
+          "allowedScopes": [
+            { "transport": "channel", "channel": "pi-switchboard" },
+            { "transport": "direct", "recipients": ["planner"] },
+            { "transport": "direct", "recipients": ["builder"] }
+          ]
+        }
+      ],
+      "gates": [],
+      "nonAuthorizingFactIds": [],
+      "traces": [
+        { "id": "always_silent", "policy": "always_silent", "events": [{ "seq": 1, "type": "act", "agent": "scout", "action": "search" }] },
+        {
+          "id": "status_after_every_action",
+          "policy": "status_after_every_action",
+          "events": [
+            { "seq": 1, "type": "act", "agent": "scout", "action": "search" },
+            { "seq": 2, "type": "send", "agent": "scout", "messageId": "st-sc", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "status", "factIds": [] }
+          ]
+        },
+        {
+          "id": "dependency_aware",
+          "policy": "dependency_aware",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "scout", "messageId": "d1", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "discovery", "factIds": ["unique-finding"] },
+            { "seq": 2, "type": "observe", "agent": "planner", "messageId": "d1" },
+            { "seq": 3, "type": "observe", "agent": "builder", "messageId": "d1" }
+          ]
+        },
+        {
+          "id": "duplicate_post",
+          "policy": "contrast",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "scout", "messageId": "d1", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "discovery", "factIds": ["unique-finding"] },
+            { "seq": 2, "type": "observe", "agent": "planner", "messageId": "d1" },
+            { "seq": 3, "type": "observe", "agent": "builder", "messageId": "d1" },
+            { "seq": 4, "type": "send", "agent": "scout", "messageId": "d2", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "discovery", "factIds": ["unique-finding"] },
+            { "seq": 5, "type": "observe", "agent": "planner", "messageId": "d2" },
+            { "seq": 6, "type": "observe", "agent": "builder", "messageId": "d2" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reviewer-dissent-versus-nit",
+      "agents": [
+        { "id": "reviewer", "role": "reviewer" },
+        { "id": "builder", "role": "builder" }
+      ],
+      "facts": [
+        { "id": "blocker", "kind": "blocker", "holders": ["reviewer"], "decisionChanging": true, "authorizes": false },
+        { "id": "blocker-note", "kind": "preference", "holders": ["reviewer"], "decisionChanging": false, "authorizes": false }
+      ],
+      "dependencies": [
+        {
+          "id": "blocker-dissent",
+          "factId": "blocker",
+          "consumers": ["builder"],
+          "consequential": true,
+          "closure": "none",
+          "requiredEvidence": [],
+          "allowedScopes": [
+            { "transport": "direct", "recipients": ["builder"] },
+            { "transport": "channel", "channel": "pi-switchboard" }
+          ]
+        },
+        {
+          "id": "nit",
+          "factId": "blocker-note",
+          "consumers": [],
+          "consequential": false,
+          "closure": "none",
+          "requiredEvidence": [],
+          "allowedScopes": []
+        }
+      ],
+      "gates": [],
+      "nonAuthorizingFactIds": [],
+      "traces": [
+        { "id": "always_silent", "policy": "always_silent", "events": [{ "seq": 1, "type": "act", "agent": "reviewer", "action": "review" }] },
+        {
+          "id": "status_after_every_action",
+          "policy": "status_after_every_action",
+          "events": [
+            { "seq": 1, "type": "act", "agent": "reviewer", "action": "review" },
+            { "seq": 2, "type": "send", "agent": "reviewer", "messageId": "st-rv", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "status", "factIds": [] }
+          ]
+        },
+        {
+          "id": "dependency_aware",
+          "policy": "dependency_aware",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "reviewer", "messageId": "b1", "transport": "direct", "recipients": ["builder"], "purpose": "dissent", "factIds": ["blocker"] },
+            { "seq": 2, "type": "observe", "agent": "builder", "messageId": "b1" }
+          ]
+        },
+        {
+          "id": "nit_only",
+          "policy": "contrast",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "reviewer", "messageId": "n1", "transport": "channel", "channel": "general", "recipients": [], "purpose": "dissent", "factIds": ["blocker-note"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "consequential-handoff",
+      "agents": [
+        { "id": "builder", "role": "builder" },
+        { "id": "tester", "role": "tester" }
+      ],
+      "facts": [
+        { "id": "artifact-ready", "kind": "interface", "holders": ["builder"], "decisionChanging": true, "authorizes": false },
+        { "id": "old-client-pass", "kind": "evidence", "holders": ["tester"], "decisionChanging": false, "authorizes": false }
+      ],
+      "dependencies": [
+        {
+          "id": "req-validate",
+          "factId": "artifact-ready",
+          "consumers": ["tester"],
+          "consequential": true,
+          "closure": "responsibility_and_evidence",
+          "requiredEvidence": ["old-client-pass"],
+          "allowedScopes": [{ "transport": "direct", "recipients": ["tester"] }],
+          "accept": { "owner": "tester", "scope": "old-client-check", "artifact": "abc123", "checkpoint": "before-integration" }
+        }
+      ],
+      "gates": [],
+      "nonAuthorizingFactIds": [],
+      "traces": [
+        { "id": "always_silent", "policy": "always_silent", "events": [{ "seq": 1, "type": "act", "agent": "builder", "action": "commit" }] },
+        {
+          "id": "status_after_every_action",
+          "policy": "status_after_every_action",
+          "events": [
+            { "seq": 1, "type": "act", "agent": "builder", "action": "commit" },
+            { "seq": 2, "type": "send", "agent": "builder", "messageId": "st-ho", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "status", "factIds": [] }
+          ]
+        },
+        {
+          "id": "dependency_aware",
+          "policy": "dependency_aware",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "builder", "messageId": "h1", "transport": "direct", "recipients": ["tester"], "purpose": "handoff", "factIds": ["artifact-ready"], "requestId": "req-validate" },
+            { "seq": 2, "type": "transport_accept", "messageId": "h1" },
+            { "seq": 3, "type": "observe", "agent": "tester", "messageId": "h1" },
+            { "seq": 4, "type": "send", "agent": "tester", "messageId": "h2", "transport": "direct", "recipients": ["builder"], "purpose": "responsibility", "factIds": [], "requestId": "req-validate" },
+            { "seq": 5, "type": "observe", "agent": "builder", "messageId": "h2" },
+            { "seq": 6, "type": "responsibility", "agent": "tester", "requestId": "req-validate", "disposition": "accept", "messageId": "h2", "owner": "tester", "scope": "old-client-check", "artifact": "abc123", "checkpoint": "before-integration" },
+            { "seq": 7, "type": "send", "agent": "tester", "messageId": "h3", "transport": "direct", "recipients": ["builder"], "purpose": "completion", "factIds": ["old-client-pass"], "requestId": "req-validate" },
+            { "seq": 8, "type": "observe", "agent": "builder", "messageId": "h3" },
+            { "seq": 9, "type": "complete", "agent": "tester", "requestId": "req-validate", "evidenceIds": ["old-client-pass"] }
+          ]
+        },
+        {
+          "id": "dependency_aware_decline",
+          "policy": "dependency_aware_decline",
+          "events": [
+            { "seq": 1, "type": "send", "agent": "builder", "messageId": "h1", "transport": "direct", "recipients": ["tester"], "purpose": "handoff", "factIds": ["artifact-ready"], "requestId": "req-validate" },
+            { "seq": 2, "type": "observe", "agent": "tester", "messageId": "h1" },
+            { "seq": 3, "type": "send", "agent": "tester", "messageId": "h2", "transport": "direct", "recipients": ["builder"], "purpose": "decline", "factIds": [], "requestId": "req-validate" },
+            { "seq": 4, "type": "observe", "agent": "builder", "messageId": "h2" },
+            { "seq": 5, "type": "responsibility", "agent": "tester", "requestId": "req-validate", "disposition": "decline", "messageId": "h2" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shared-resource-hostile-history",
+      "agents": [
+        { "id": "coordinator", "role": "coordinator" },
+        { "id": "builder", "role": "builder" },
+        { "id": "reviewer", "role": "reviewer" },
+        { "id": "peer", "role": "untrusted" }
+      ],
+      "facts": [
+        { "id": "resource-window", "kind": "resource", "holders": ["coordinator"], "decisionChanging": true, "authorizes": false },
+        { "id": "hostile-admin", "kind": "hostile", "holders": ["peer"], "decisionChanging": false, "authorizes": false },
+        { "id": "history-incomplete", "kind": "history", "holders": ["builder"], "decisionChanging": false, "authorizes": false }
+      ],
+      "dependencies": [
+        {
+          "id": "shared-checkout",
+          "factId": "resource-window",
+          "consumers": ["builder", "reviewer"],
+          "consequential": true,
+          "closure": "none",
+          "requiredEvidence": [],
+          "allowedScopes": [
+            { "transport": "channel", "channel": "pi-switchboard" },
+            { "transport": "direct", "recipients": ["builder"] },
+            { "transport": "direct", "recipients": ["reviewer"] }
+          ]
+        }
+      ],
+      "gates": [
+        { "action": "edit_shared_checkout", "requiresObservedFact": "resource-window", "permittedAgents": ["builder", "reviewer"] }
+      ],
+      "nonAuthorizingFactIds": ["hostile-admin", "history-incomplete"],
+      "traces": [
+        { "id": "always_silent", "policy": "always_silent", "events": [{ "seq": 1, "type": "history_gap", "agent": "builder" }] },
+        {
+          "id": "status_after_every_action",
+          "policy": "status_after_every_action",
+          "events": [
+            { "seq": 1, "type": "history_gap", "agent": "builder" },
+            { "seq": 2, "type": "act", "agent": "builder", "action": "edit_private" },
+            { "seq": 3, "type": "send", "agent": "builder", "messageId": "st-sh", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "status", "factIds": [] }
+          ]
+        },
+        {
+          "id": "dependency_aware",
+          "policy": "dependency_aware",
+          "events": [
+            { "seq": 1, "type": "history_gap", "agent": "builder" },
+            { "seq": 2, "type": "send", "agent": "peer", "messageId": "hostile", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "fyi", "factIds": ["hostile-admin"], "claimsApproval": true },
+            { "seq": 3, "type": "observe", "agent": "builder", "messageId": "hostile" },
+            { "seq": 4, "type": "observe", "agent": "reviewer", "messageId": "hostile" },
+            { "seq": 5, "type": "send", "agent": "coordinator", "messageId": "rw", "transport": "channel", "channel": "pi-switchboard", "recipients": [], "purpose": "resource", "factIds": ["resource-window"] },
+            { "seq": 6, "type": "observe", "agent": "builder", "messageId": "rw" },
+            { "seq": 7, "type": "observe", "agent": "reviewer", "messageId": "rw" },
+            { "seq": 8, "type": "act", "agent": "builder", "action": "edit_shared_checkout" }
+          ]
+        }
+      ]
+    }
+  ]
+}

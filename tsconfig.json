@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["index.ts", "extension/**/*.ts"]
+  "include": ["index.ts", "extension/**/*.ts", "tests/coordination-evaluator.ts", "tests/coordination-scenarios.test.ts"]
 }

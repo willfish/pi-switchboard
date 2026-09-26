@@ -19,7 +19,11 @@ function ui() {
 
 it("real root entry binds host registrations without starting fetch or timers", () => {
   const sdk = host(); entry(sdk.pi);
-  assert.equal(sdk.tools.size, 4); assert.equal(sdk.commands.size, 4); assert.equal(sdk.injected.length, 0);
+  assert.deepEqual([...sdk.tools.keys()].sort(), [
+    "get_coordination_guidance", "list_agents", "list_channels", "post_channel", "read_channel",
+    "report_work", "send_agent_message", "set_agent_label", "update_channel_status",
+  ]);
+  assert.equal(sdk.commands.size, 4); assert.equal(sdk.injected.length, 0);
 });
 
 it("completion values use full population uniqueness and documented labels/provider descriptions without I/O", () => {
@@ -45,16 +49,18 @@ it("readable discovery is bounded at 50 KiB and 2000 lines with totals, no-model
   assert.equal(formatAgentList([], agentA), "no agents");
 });
 
-it("list_agents retains all complete validated records in details despite readable truncation", async () => {
+it("list_agents retains all complete validated records in details despite readable truncation", async t => {
   const sdk = host(); const agents = Array.from({ length: 2200 }, (_, i) => ({ ...peer, agentId: `${i.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`, label: "long ".repeat(40) }));
   let page = 0;
   const runtime = createAgentBusExtension({ pi: sdk.pi, uuid: () => agentA, env: { PI_AGENT_BUS_TOKEN: "synthetic" }, subscribe: dormantSubscribe,
-    fetch: async (_url, init) => {
+    fetch: async (url, init) => {
       if (init?.method !== "GET") return response();
+      if (!new URL(String(url)).pathname.endsWith("/agents")) return response(404, {});
       const start = page * 128; const chunk = agents.slice(start, start + 128); const current = page++;
       return response(200, { epoch: agentA, revision: "1", snapshotId: agentB, capturedAt: 0, page: current, total: agents.length, agents: chunk,
         nextCursor: start + chunk.length < agents.length ? Buffer.from(`${agentB}:${page}`).toString("base64url") : null });
     } });
+  t.after(() => runtime.sessionShutdown());
   runtime.sessionStart({}, context()); await flush();
   const result = await sdk.tools.get("list_agents").execute("id", {}, undefined);
   assert.deepEqual(result.details.agents, agents); assert.match(result.content[0].text, /truncated/);

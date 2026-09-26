@@ -235,6 +235,12 @@ class Node {
 const html = await readFile(new URL('../hub/priv/dashboard/index.html', import.meta.url), 'utf8');
 function dom() {
   const doc = new Node('document'); doc.doc = doc; doc.hidden = false; doc.documentElement = new Node('html', doc);
+  doc.body = new Node('body', doc);
+  const classes = new Set();
+  doc.body.classList = {
+    contains: name => classes.has(name),
+    toggle(name, force = !classes.has(name)) { if (force) classes.add(name); else classes.delete(name); return force; },
+  };
   const ids = new Map();
   for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"[^>]*>/g)) ids.set(match[2], new Node(match[1], doc));
   doc.createElement = (tag) => new Node(tag, doc); doc.getElementById = (id) => ids.get(id);

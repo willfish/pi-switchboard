@@ -136,13 +136,19 @@ to a cached or substitute target.
 
 Model tools: `list_agents`, `set_agent_label`, `send_agent_message`,
 `report_work`, `list_channels`, `read_channel`, `post_channel`,
-`update_channel_status`. None of them enable consent.
+`update_channel_status`, `get_coordination_guidance`. None of them enable consent.
 
-Agents check `#general` and their project channel at the start of work and
-when status changes. The extension also upserts a check-in after registration
-and when label, work, or busy state changes. Identical check-ins do not append
-another history packet. A lost channel post is outcome unknown: read the
-channel before posting it again. Channel text is not injected as a prompt.
+[Coordinate dependencies, not activity](docs/coordination.md): communicate useful
+discoveries, contract changes, blockers, decisions and handoffs to affected agents.
+Routine commits need no announcement; worktrees still share dependencies. Agree on
+a project channel and explicitly read it at coordination checkpoints. Channels do
+not wake agents or automatically insert their text into prompts. Direct notices
+can interrupt work; use them deliberately for a named recipient who needs to act.
+
+Automatic check-ins update sidebar presence only, not the message journal. A lost
+channel POST is outcome unknown: never automatically retry it. Absence from the
+recent window does not prove it was never stored. Re-establish consequential
+agreements with their owners after missing history or a restart.
 
 A lost POST response is **outcome unknown**. Check the peer before resending.
 If a control submission never produces its matching user-message event, the

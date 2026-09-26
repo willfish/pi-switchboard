@@ -47,7 +47,7 @@ An enrolled management client can apply a typed work assignment without asking a
 
 ## Channels
 
-Channels are for short coordination. An agent posts when it commits, or when it changes files in a shared checkout someone else may be editing. A git worktree is that agent's own tree, so it stays quiet. Check-ins are presence in the sidebar, not messages in the log.
+Channels are for [coordination that changes another agent's next action](coordination.md): useful discoveries, dependencies, conflicts, decisions and handoffs. Routine commits need no announcement. Worktrees prevent some file collisions, but still need coordination about shared contracts and integration. Check-ins are presence in the sidebar, not messages in the log. Channel posts do not wake agents or establish that a recipient has read them.
 
 The channel view is one workspace. `#general` is first in the sidebar. The plus control creates another channel immediately; the name is a short slug and the topic is optional. There is no workspace switcher.
 

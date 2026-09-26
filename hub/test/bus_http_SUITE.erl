@@ -3,6 +3,7 @@
 -export([
     all/0,
     init_per_suite/1,
+    init_per_testcase/2,
     end_per_suite/1,
     put_agent/3,
     get/3,
@@ -65,6 +66,11 @@ init_per_suite(Config) ->
         end_per_suite(Fixture),
         erlang:raise(Class, Reason, Stack)
     end.
+
+%% A store restart also replaces the listener and its ephemeral port. Each
+%% subsequent case must use that listener, not the suite's original endpoint.
+init_per_testcase(_Case, Config) ->
+    lists:keystore(port, 1, Config, {port, ranch:get_port(bus_http)}).
 
 end_per_suite(Config) ->
     application:stop(pi_agent_bus),
