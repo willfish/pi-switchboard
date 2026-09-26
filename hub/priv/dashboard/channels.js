@@ -1,3 +1,4 @@
+export const OPERATOR_ID = '00000000-0000-4000-8000-000000000001';
 const NAME = /^[a-z][a-z0-9-]{0,31}$/;
 const SEQ = /^(0|[1-9][0-9]{0,19})$/;
 const PAGE_KEYS = ['epoch', 'channel', 'window', 'fromSequence', 'toSequence', 'retainedFrom', 'retainedTo',
@@ -40,6 +41,10 @@ export function isStatusBoard(value, name) {
     && value.statuses.every(row => typeof row.agentId === 'string' && typeof row.summary === 'string');
 }
 
+export function speaker(message) {
+  return message?.from === OPERATOR_ID ? 'Operator' : message?.from ?? '';
+}
+
 export function mergeHistory(current, page, placement) {
   const seen = new Set(current.map(message => message.seq));
   const fresh = page.messages.filter(message => !seen.has(message.seq));
@@ -56,6 +61,7 @@ export function mountChannels(doc, session) {
   let page = null;
   let open = false;
   let generation = 0;
+  let draftId = null;
   function status(text) { byId('channels-status').textContent = text; }
   async function loadList() {
     const own = generation;
@@ -104,7 +110,7 @@ export function mountChannels(doc, session) {
     const log = byId('channel-log');
     log.replaceChildren(...history.map(message => {
       const item = node('article', '');
-      item.append(node('p', `${message.kind === 'status' ? 'Status' : 'Note'} · ${message.from} · ${message.postedAt}`),
+      item.append(node('p', `${message.kind === 'status' ? 'Status' : 'Note'} · ${speaker(message)} · ${message.postedAt}`),
         node('p', message.body));
       item.lastChild.className = 'channel-note';
       return item;
@@ -113,6 +119,9 @@ export function mountChannels(doc, session) {
   function reset() {
     generation++;
     open = false; selected = 'general'; history = []; page = null;
+    draftId = null;
+    const draft = byId('channel-draft'); if (draft) draft.value = '';
+    const postStatus = byId('channel-post-status'); if (postStatus) postStatus.textContent = '';
     byId('channel-log')?.replaceChildren();
     byId('channel-names')?.replaceChildren();
     byId('channel-status')?.replaceChildren();
@@ -140,6 +149,25 @@ export function mountChannels(doc, session) {
     void loadPage({ after: '0' }, 'replace').catch(() => status("Couldn't load history from the start."));
   });
   byId('channel-refresh')?.addEventListener('click', () => { void reload(); });
+  byId('channel-composer')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const draft = byId('channel-draft');
+    const note = byId('channel-post-status');
+    const body = draft?.value.trim() ?? '';
+    if (!body || !session.channelPost) { if (note) note.textContent = 'This server cannot share operator updates yet.'; return; }
+    draftId ??= crypto.randomUUID();
+    const id = draftId;
+    if (note) note.textContent = 'Sharing your update…';
+    void session.channelPost(selected, id, body).then(async () => {
+      if (draftId === id) { draftId = null; if (draft) draft.value = ''; }
+      if (note) note.textContent = 'Shared as the operator.';
+      await loadPage(undefined, 'replace');
+    }, error => {
+      if (note) note.textContent = error?.code === 'outcome_unknown'
+        ? 'That update may already be shared. Check the channel before sending it again.'
+        : "Couldn't share that update.";
+    });
+  });
   return {
     async openView() {
       open = true;

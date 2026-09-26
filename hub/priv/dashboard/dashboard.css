@@ -41,6 +41,8 @@ button[aria-pressed="true"] { background: var(--tint); border-color: var(--accen
 .channel-layout { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 16px; }
 .channel-log { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow: auto; }
 .channel-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+#channel-composer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.channel-list { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 @media (max-width: 800px) { .channel-layout { grid-template-columns: 1fr; } }
 .agent-toolbar { display: flex; align-items: end; gap: 16px; margin-top: 14px; }
 .agent-toolbar .search { flex: 1; }

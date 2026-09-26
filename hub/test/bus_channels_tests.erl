@@ -4,6 +4,15 @@
 -define(A, <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>).
 -define(B, <<"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb">>).
 
+operator_post_uses_reserved_sender_test() ->
+    ?assertEqual(true, bus_protocol:is_uuid(bus_channels:operator_id())),
+    {ok, Id, <<"hello from the operator">>} = bus_channels:decode_operator_post(#{<<"id">> => ?A, <<"body">> => <<"hello from the operator">>}),
+    {ok, S, Result} = bus_channels:post(bus_channels:new(1_000), <<"general">>, bus_channels:operator_id(), Id, <<"hello from the operator">>, 1_000, 1_000),
+    {ok, Page} = bus_channels:read(S, <<"general">>, #{audience => operator, mode => tail, limit => 8}),
+    [Message] = maps:get(<<"messages">>, Page),
+    ?assertEqual(bus_channels:operator_id(), maps:get(<<"from">>, Message)),
+    ?assertEqual(<<"accepted">>, maps:get(<<"state">>, Result)).
+
 status_document_roundtrip_test() ->
     Bin = bus_protocol:encode_map(#{<<"from">> => ?A, <<"summary">> => <<"checking in">>,
         <<"label">> => <<"ct-agent">>, <<"project">> => <<"suite">>, <<"area">> => <<"general">>}),

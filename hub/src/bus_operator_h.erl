@@ -71,7 +71,15 @@ dispatch(Req, operations) ->
 dispatch(Req, operation_status) -> read(Req, operation_status);
 dispatch(Req, operation_cancel) -> mutation_op(Req, operation_cancel);
 dispatch(Req, channels) -> read(Req, channels);
-dispatch(Req, channel_messages) -> read(Req, channel_messages);
+dispatch(Req, channel_messages) ->
+    case cowboy_req:method(Req) of
+        <<"POST">> -> mutation_op(Req, channel_post);
+        <<"GET">> -> read(Req, channel_messages);
+        _ ->
+            cowboy_req:reply(405, headers(#{<<"allow">> => <<"GET, POST">>,
+                <<"content-type">> => <<"application/json">>}),
+                bus_protocol:encode_error(<<"method_not_allowed">>, <<"GET or POST required">>), Req)
+    end;
 dispatch(Req, channel_status) -> read(Req, channel_status);
 dispatch(Req, _) -> error_reply(Req, 404, <<"not_found">>, <<"unknown route">>).
 
@@ -162,7 +170,8 @@ mutate_op(Req0, Kind) ->
                                 {ok, _} ->
                                     case Kind of
                                         operations -> create_op(Req0, Conn, Digest, Deadline);
-                                        operation_cancel -> cancel_op(Req0, Conn, Digest, Deadline)
+                                        operation_cancel -> cancel_op(Req0, Conn, Digest, Deadline);
+                                        channel_post -> post_channel(Req0, Deadline)
                                     end
                             end
                     end
@@ -382,6 +391,28 @@ channel_name(Req) ->
     case bus_channels:decode_name(cowboy_req:binding(name, Req)) of
         {ok, Name} -> {ok, Name};
         {error, Reason} -> {error, Reason}
+    end.
+
+post_channel(Req0, Deadline) ->
+    case channel_name(Req0) of
+        {error, Reason} -> store_error(Req0, Reason);
+        {ok, Name} ->
+            case cowboy_req:qs(Req0) of
+                <<>> ->
+                    case read_op_json(Req0) of
+                        {error, Status, Code, Message, Req} -> error_reply(Req, Status, Code, Message);
+                        {ok, Map, Req} ->
+                            case bus_channels:decode_operator_post(Map) of
+                                {ok, Id, Body} ->
+                                    case bus_store:channel_operator_post(Name, {Id, Body}, Deadline) of
+                                        {ok, Doc} -> json_reply(Req, 200, Doc);
+                                        {error, Reason} -> store_error(Req, Reason)
+                                    end;
+                                {error, Reason} -> store_error(Req, Reason)
+                            end
+                    end;
+                _ -> store_error(Req0, invalid_schema)
+            end
     end.
 
 channel_messages(Req, Deadline) ->

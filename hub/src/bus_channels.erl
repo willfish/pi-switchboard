@@ -21,7 +21,9 @@
     decode_name/1,
     decode_ensure/1,
     decode_post/1,
+    decode_operator_post/1,
     decode_status/1,
+    operator_id/0,
     parse_query/2
 ]).
 
@@ -217,6 +219,26 @@ decode_post(Map) when is_map(Map) ->
         Error -> Error
     end;
 decode_post(_) -> {error, invalid_schema}.
+
+%% Operator posts use a reserved sender so the console can label them without
+%% impersonating a live agent. The public message schema stays unchanged.
+operator_id() -> <<"00000000-0000-4000-8000-000000000001">>.
+
+decode_operator_post(Map) when is_map(Map) ->
+    case extra(Map, [<<"id">>, <<"body">>]) of
+        ok ->
+            case uuid_field(Map, <<"id">>) of
+                {ok, Id} ->
+                    case body_field(Map) of
+                        {ok, Body} -> {ok, Id, Body};
+                        {error, Reason} -> {error, Reason};
+                        error -> {error, invalid_schema}
+                    end;
+                error -> {error, invalid_schema}
+            end;
+        Error -> Error
+    end;
+decode_operator_post(_) -> {error, invalid_schema}.
 
 decode_status(Map) when is_map(Map) ->
     case extra(Map, [<<"from">>, <<"summary">>, <<"label">>, <<"project">>, <<"area">>]) of

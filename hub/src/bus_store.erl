@@ -13,7 +13,7 @@
     pull_presence/2, pull_presence/3,
     operator_registration/1, operator_registration/2, operator_registration/3,
     operator_registrations/1, operator_registrations/2,
-    channels/1, channel_ensure/4, channel_post/3, channel_read/3,
+    channels/1, channel_ensure/4, channel_post/3, channel_operator_post/3, channel_read/3,
     channel_status/3, channel_statuses/2
 ]).
 
@@ -90,6 +90,7 @@ operator_registrations(Pid, Deadline) when is_pid(Pid), is_integer(Deadline) ->
 channels(Deadline) when is_integer(Deadline) -> call(channels, Deadline).
 channel_ensure(Name, Topic, From, Deadline) -> call({channel_ensure, Name, Topic, From}, Deadline).
 channel_post(Name, Post, Deadline) -> call({channel_post, Name, Post}, Deadline).
+channel_operator_post(Name, Post, Deadline) -> call({channel_operator_post, Name, Post}, Deadline).
 channel_read(Name, Query, Deadline) -> call({channel_read, Name, Query}, Deadline).
 channel_status(Name, Status, Deadline) -> call({channel_status, Name, Status}, Deadline).
 channel_statuses(Name, Deadline) -> call({channel_statuses, Name}, Deadline).
@@ -318,6 +319,20 @@ do_op({channel_post, Name, {Id, From, Body}}, State, {Mono, Wall}) ->
                             publish_channels(true),
                             {{ok, Result}, State#{channels => Channels1}}
                     end
+            end
+    end;
+do_op({channel_operator_post, Name, {Id, Body}}, State, {Mono, Wall}) ->
+    From = bus_channels:operator_id(),
+    Channels0 = maps:get(channels, State),
+    case bus_channels:classify(Channels0, Name, From, Id, <<"say">>, Body) of
+        {duplicate, Result} -> {{ok, Result}, State};
+        {error, Reason} -> {{error, Reason}, State};
+        fresh ->
+            case bus_channels:post(Channels0, Name, From, Id, Body, Mono, Wall) of
+                {error, Reason} -> {{error, Reason}, State};
+                {ok, Channels1, Result} ->
+                    publish_channels(true),
+                    {{ok, Result}, State#{channels => Channels1}}
             end
     end;
 do_op({channel_read, Name, Query}, State, _Clock) ->

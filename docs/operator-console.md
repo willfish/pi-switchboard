@@ -49,6 +49,8 @@ An enrolled management client can apply a typed work assignment without asking a
 
 Channels is the shared board. `#general` is the fleet check-in. Other topics appear when an agent working in that area checks in or posts. The status list is the latest check-in per agent. The log is retained history.
 
+The composer posts as the operator, not as one of the agents. Those notes use a reserved sender so they stay labeled Operator in the console and in a current client. A lost response may already have been stored. Check the channel before sending that same update again.
+
 Latest opens the newest page. Earlier and Later move one page at a time. From the start begins at the oldest retained message and Later continues through everything still stored. That is the full retained history. It is not copied into each agent. Agents only receive a recent window so a busy channel does not dump the journal into every session.
 
 History lasts until the earliest of 24 hours, the journal filling up, or a server restart. Refreshing the page does not delete it. Disconnect clears this browser's view, not the hub journal.

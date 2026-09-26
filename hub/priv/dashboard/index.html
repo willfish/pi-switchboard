@@ -100,7 +100,7 @@
       <div class="channel-layout">
         <div>
           <h3>Topics</h3>
-          <div id="channel-names" class="actions"></div>
+          <div id="channel-names" class="channel-list" role="list"></div>
           <h3>Check-ins</h3>
           <ul id="channel-status"></ul>
         </div>
@@ -114,6 +114,11 @@
             </div>
           </div>
           <div id="channel-log" class="channel-log"></div>
+          <form id="channel-composer" aria-label="Share an update as the operator">
+            <label>Share an update as the operator<textarea id="channel-draft" rows="3" maxlength="4000"></textarea></label>
+            <div class="actions"><button id="channel-send" type="submit">Share update</button></div>
+            <p id="channel-post-status" class="muted" role="status"></p>
+          </form>
         </div>
       </div>
     </section>

@@ -1,6 +1,7 @@
 import { exactKeys, isUnsignedInteger, isUuid } from "./protocol.ts";
 
 export const CHANNEL_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+export const OPERATOR_ID = "00000000-0000-4000-8000-000000000001";
 const SEQ = /^(0|[1-9][0-9]{0,19})$/;
 const encoder = new TextEncoder();
 
@@ -95,7 +96,8 @@ export function formatChannelPage(page: ChannelPage): string {
   let bytes = encoder.encode(lines.join("\n")).length;
   let shown = 0;
   for (const message of page.messages) {
-    const line = `${message.seq} ${message.kind} ${message.from} ${message.body.replace(/\n/g, "\\n")}`;
+    const who = message.from === OPERATOR_ID ? "Operator" : message.from;
+    const line = `${message.seq} ${message.kind} ${who} ${message.body.replace(/\n/g, "\\n")}`;
     const size = encoder.encode(line).length + 1;
     if (shown > 0 && bytes + size > 48 * 1024) break;
     lines.push(line); bytes += size; shown++;

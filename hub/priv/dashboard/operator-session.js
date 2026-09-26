@@ -533,5 +533,38 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     return promise;
   }
 
-  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, channelRead, disconnect };
+  function decodeChannelPost(bytes, id, channel) {
+    const value = decodeExactJson(bytes);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
+    if (value.id !== id || value.channel !== channel || value.state !== 'accepted' || typeof value.sequence !== 'string') fail();
+    return value;
+  }
+  function channelPost(channel, id, body) {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(channel) || !operationId(id) || typeof body !== 'string' || !body.trim()) fail();
+    return mutateLike(`/dashboard/api/v1/channels/${channel}/messages`, { id, body }, bytes => decodeChannelPost(bytes, id, channel));
+  }
+  async function mutateLike(path, body, decode) {
+    if (userDisconnected) fail('disconnected');
+    const encoded = JSON.stringify(body);
+    if (new TextEncoder().encode(encoded).length > 8192) fail('limit');
+    if (mutations.size >= 4) fail('busy');
+    const request = new AbortController(), epoch = mutationGeneration;
+    mutations.add(request); let dispatched = false;
+    try {
+      if (flight) await flight;
+      if (epoch !== mutationGeneration || userDisconnected || request.signal.aborted) fail('cancelled');
+      if (!nonce) await connect({ signal: request.signal });
+      if (epoch !== mutationGeneration || userDisconnected || request.signal.aborted) fail('cancelled');
+      dispatched = true;
+      const result = await readDocument(path, { 'content-type': 'application/json', 'X-Switchboard-Session': nonce },
+        encoded, request.signal, 4096, 'POST', decode);
+      if (epoch !== mutationGeneration || userDisconnected || request.signal.aborted) fail('cancelled');
+      return result;
+    } catch (error) {
+      if (dispatched && !['rejected', 'unauthorized', 'forbidden'].includes(error?.code)) fail('outcome_unknown');
+      throw error;
+    } finally { mutations.delete(request); request.abort(); }
+  }
+
+  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, channelRead, channelPost, disconnect };
 }

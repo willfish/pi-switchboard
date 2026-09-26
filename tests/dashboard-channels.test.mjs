@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isMessagePage, mergeHistory, channelMessagesPath } from '../hub/priv/dashboard/channels.js';
+import { isMessagePage, mergeHistory, channelMessagesPath, speaker, OPERATOR_ID } from '../hub/priv/dashboard/channels.js';
+
+test('operator posts are labeled without impersonating an agent', () => {
+  assert.equal(speaker({ from: OPERATOR_ID }), 'Operator');
+  assert.equal(speaker({ from: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+});
 
 test('operator history can be walked without duplicating packets', () => {
   assert.equal(channelMessagesPath('general', { after: '0' }), '/dashboard/api/v1/channels/general/messages?after=0');
