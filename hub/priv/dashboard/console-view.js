@@ -343,6 +343,7 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     byId('communications-list').replaceChildren(...items);
     byId('communications-count').textContent = `${records.length} of ${current.events.length} events on this page`;
   }
+  const channels = mountChannels(doc, operator);
   const view = createCommunications({ operator, onObserved,
     onUpdate() { onUpdate(); controls.invalidate(); void channels.refresh(true); },
     onPush(value) { onPush(value); controls.setPush(value); }, render(state) {
@@ -368,7 +369,6 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     byId('communications-follow').checked = state.following;
     if (lastEvents !== state.events) { lastEvents = state.events; rows(); }
   } });
-  const channels = mountChannels(doc, operator);
   function select(viewName) {
     byId('runtimes').hidden = viewName !== 'fleet';
     byId('communications').hidden = viewName !== 'communications';
