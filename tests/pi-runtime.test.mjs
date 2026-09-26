@@ -22,6 +22,8 @@ const artifact = name => {
   return value;
 };
 const piPackage = artifact('PI_AGENT_BUS_TEST_PI_PACKAGE');
+const piVersion = process.env.PI_AGENT_BUS_TEST_PI_VERSION;
+assert.match(piVersion ?? '', /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/, 'explicit expected Pi package version is required');
 const extensionPackage = artifact('PI_AGENT_BUS_TEST_EXTENSION_PACKAGE');
 const hubExecutable = artifact('PI_AGENT_BUS_TEST_EXECUTABLE');
 const python = artifact('PI_AGENT_BUS_TEST_PYTHON');
@@ -137,7 +139,7 @@ async function setup(t, { operator = false, hub: startHub = true } = {}) {
     await symlink(join(fixtures, 'observer.js'), join(agentDir, 'extensions/observer.js'));
     await writeFile(join(agentDir, 'settings.json'), JSON.stringify({
       defaultProvider: 'fixture', defaultModel: 'fixture-a', defaultThinkingLevel: 'off',
-      enableInstallTelemetry: false, enableAnalytics: false, lastChangelogVersion: '0.85.1',
+      enableInstallTelemetry: false, enableAnalytics: false, lastChangelogVersion: piVersion,
       retry: { enabled: false, provider: { maxRetries: 0, timeoutMs: 10000 } },
       compaction: { enabled: false }, branchSummary: { skipPrompt: true }, ...settings,
     }));
@@ -251,7 +253,7 @@ async function setup(t, { operator = false, hub: startHub = true } = {}) {
 
 // This check intentionally fails on missing artifacts or behavior. It never
 // treats exit zero, a mocked lifecycle callback, or an excluded test as acceptance.
-test('raw Pi artifact is the pinned native 0.85.1 binary', async t => {
+test('raw Pi artifact is the selected pinned native binary', async t => {
   t.diagnostic(`Missing standalone behavioral scenarios: ${remainingScenarios.join('; ') || 'none in the agreed matrix; native abort boundaries do not replace uncooperative-callback unit evidence'}`);
   t.diagnostic(`Platform execution gates: ${platformGates.join('; ')}`);
   t.diagnostic(`Consumer composition/deployment gates: ${consumerGates.join('; ')}`);
@@ -260,9 +262,9 @@ test('raw Pi artifact is the pinned native 0.85.1 binary', async t => {
   try { await handle.read(magic, 0, 4, 0); } finally { await handle.close(); }
   assert.ok(['7f454c46', 'cffaedfe', 'feedfacf', 'cafebabe'].includes(magic.toString('hex')), 'reject shell/Node/credential wrappers');
   const manifest = JSON.parse(await readFile(join(piDir, 'package.json'), 'utf8'));
-  assert.equal(manifest.version, '0.85.1');
+  assert.equal(manifest.version, piVersion);
   const home = await mkdtemp(join(tmpdir(), 'pi-version-'));
-  try { assert.equal(execFileSync(piExecutable, ['--version'], { env: cleanEnv(home), cwd: home, timeout: 10000 }).toString().trim(), '0.85.1'); }
+  try { assert.equal(execFileSync(piExecutable, ['--version'], { env: cleanEnv(home), cwd: home, timeout: 10000 }).toString().trim(), piVersion); }
   finally { await rm(home, { recursive: true, force: true }); }
 });
 
@@ -970,10 +972,12 @@ test('steering consumes the exact slot and permits another steer in the same too
   f.modelProvider.release();
   await waitFor(() => includesText(f.modelProvider.requests, 'notice held through steering'), 'notice follow-up reaches the provider');
   await pi.event('message_start', e => e.message.role === 'user' && JSON.stringify(e.message.content).includes('notice held through steering'));
+  const settled = settledCount(await pi.events());
   assert.equal((await f.send(agent.agentId, 'steer', 'second steering marker')).status, 202);
   await pi.event('input', e => e.source === 'extension' && e.text.includes('second steering marker'));
   f.modelProvider.release();
-  await pi.event('agent_settled');
+  await waitFor(() => includesText(f.modelProvider.requests, 'second steering marker'), 'second steer reaches the provider');
+  await waitFor(async () => settledCount(await pi.events()) > settled, 'second steering turn settled');
   assert.ok(includesText(f.modelProvider.requests, 'second steering marker'));
   assert.ok(includesText(f.modelProvider.requests, 'first steering marker'));
 });

@@ -23,6 +23,7 @@ pkgs.runCommand "pi-switchboard-pi-runtime"
       pkgs.python3
     ];
     PI_AGENT_BUS_TEST_PI_PACKAGE = piPackage;
+    PI_AGENT_BUS_TEST_PI_VERSION = piPackage.version;
     PI_AGENT_BUS_TEST_EXTENSION_PACKAGE = extensionPackage;
     PI_AGENT_BUS_TEST_EXECUTABLE = "${hubPackage}/bin/pi-agent-bus";
     PI_AGENT_BUS_TEST_PYTHON = "${pkgs.python3}/bin/python3";
