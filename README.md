@@ -43,8 +43,9 @@ hostile multi-user deployment. A bearer token is not a firewall.
 Everything is best effort. Acceptance means queued in hub memory, not delivered
 or executed. Hub restart loses mail. Client reload loses inbox and consent.
 
-Prompt and steering require **receiver-local consent**, off by default for every
-runtime. No model tool can turn that on. Notices never start a model turn.
+Prompt and steering require **receiver-local consent**. It is off unless the
+owner launches Pi with `PI_AGENT_BUS_CONTROL=1`. No model tool or peer message
+can turn it on.
 
 ## Install
 
@@ -216,8 +217,9 @@ The extension does not start a hub. Run the hub, then launch Pi with
 <details>
 <summary><strong>Prompt or steer is refused</strong></summary>
 
-Consent starts off. The receiver must run `/bus control on` and confirm in
-their TUI. Notices still work without that.
+Consent starts off unless the launcher set `PI_AGENT_BUS_CONTROL=1`. Otherwise
+the receiver must run `/bus control on` and confirm in their TUI. Messages
+still work without that.
 
 </details>
 

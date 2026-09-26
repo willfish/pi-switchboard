@@ -23,14 +23,15 @@ Enabling through a command requires a local TUI confirmation. Replace `on` with 
 The receiver owner can set these environment variables before launching Pi to avoid repeated prompts:
 
 ```sh
+export PI_AGENT_BUS_CONTROL=1
 export PI_AGENT_BUS_OPERATOR_NOTICES=1
 export PI_AGENT_BUS_OPERATOR_READ=1
 export PI_AGENT_BUS_OPERATOR_HISTORY=1
 ```
 
-Read and history stay off unless the variable is exactly `1`. Dashboard messages are on unless `PI_AGENT_BUS_OPERATOR_NOTICES` is exactly `0`. Reading also enrolls the loaded conversation's user-visible content for inspection. History allows bounded message previews to be retained, but does not recover older messages; peer message text requires both participants enrolled.
+Work/guidance and read/history stay off unless the variable is exactly `1`. Dashboard messages are on unless `PI_AGENT_BUS_OPERATOR_NOTICES` is exactly `0`. Reading also enrolls the loaded conversation's user-visible content for inspection. History allows bounded message previews to be retained, but does not recover older messages; peer message text requires both participants enrolled.
 
-These grants apply to every permitted network operator, not just one browser or person. Work/guidance and management still start off. Offline and non-interactive sessions remain disabled. After changing launcher settings, restart Pi; `/reload` alone cannot change the environment inherited by an existing process.
+These grants apply to every permitted network operator and trusted relay peer, not just one browser or person. Management still starts off. Offline and non-interactive sessions remain disabled and do not register. After changing launcher settings, restart Pi; `/reload` reapplies the environment the process already inherited, but cannot pick up a change made after launch.
 
 Peer-message previews require both current sender and recipient registrations to be enrolled for history. Operator-request previews require the target's history enrollment. History is metadata-only otherwise. Session inspection and history enrollment are distinct. Hidden reasoning, raw tool arguments/results, environment data and arbitrary files are not exported.
 

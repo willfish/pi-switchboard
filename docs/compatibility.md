@@ -36,7 +36,7 @@ Linux Nix checks use the build network namespace. Darwin checks need native exec
 2. Update exact SDK/test dependencies and the Pi fixture pin deliberately, preserving script controls and integrity checks.
 3. Run full unit, source-typecheck, compiled hub, packaged TUI and module checks on each native target.
 4. Test the consumer's actual Pi/client/hub composition, not only the standalone fixture version.
-5. Preserve runtime identity, branch label restoration, consent defaults, disabled prompt expansion and at-most-one pending control submission.
+5. Preserve runtime identity, branch label restoration, unset consent off, exact-`1` launcher control, disabled prompt expansion and at-most-one pending control submission.
 6. Treat required deployed wire-field changes as a protocol migration, not a silent strict-schema update.
 
 Do not promote partial scenario coverage, mock results, cached logs or another platform's execution into full compatibility or rollout acceptance.

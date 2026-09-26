@@ -74,7 +74,7 @@ A 401 stops automatic background work. Refresh credentials locally rather than r
 
 A peer or dashboard message is delivered when it arrives. If the agent is idle, it starts a turn. If the agent is busy, the current run is steered and a follow-up starts after it. Inbox viewing still does not start work and does not mark a message included. Prompt and steer from a peer still require control consent.
 
-Control is off for each new runtime. Enabling requires a local confirmation. A submitted control request reserves one slot until its exact user-message event appears. Handled/transformed input, compaction rejection and other preflight failures can leave it occupied. `/bus` shows this; `/reload` clears the slot, inbox and consent. Do not retry automatically or infer execution from a void API return.
+Control is off for each new runtime unless the launcher sets `PI_AGENT_BUS_CONTROL` to exactly `1`. Any other value stays off. `/bus control on` still requires a local confirmation, and neither a model tool nor a peer message can grant it. A submitted control request reserves one slot until its exact user-message event appears. Handled/transformed input, compaction rejection and other preflight failures can leave it occupied. `/bus` shows this; `/reload` clears the slot and inbox, then reapplies the launcher grant. Do not retry automatically or infer execution from a void API return.
 
 A lost POST response is ambiguous. Ask the peer before manually resending. There is no durable spool, execution receipt or exactly-once guarantee.
 

@@ -56,13 +56,33 @@ test('launcher defaults grant only the selected operator scopes without promptin
       assert.deepEqual(p, { notice: !!(bits & 1), sessionRead: !!(bits & 2), content: !!(bits & 2), history: !!(bits & 4),
         work: false, guidance: false, label: false, interrupt: false, workAssign: false });
       assert.equal(f.confirmations(), 0);
+      assert.equal(JSON.parse(f.calls[0].body!).acceptsControl, false);
     } finally { await f.runtime.sessionShutdown(); }
   }
 });
 
+test('exact launcher control grant advertises work and guidance without a dialog', async () => {
+  const f = fixture(200, { PI_AGENT_BUS_CONTROL: '1' });
+  f.runtime.sessionStart({}, f.ctx);
+  try {
+    await settle();
+    const p = JSON.parse(f.calls.find(c => c.path === '/v1/operator/announce')!.body!).permissions;
+    assert.equal(p.work, true); assert.equal(p.guidance, true);
+    assert.equal(p.label, false); assert.equal(p.interrupt, false); assert.equal(p.workAssign, false);
+    assert.equal(JSON.parse(f.calls[0].body!).acceptsControl, true);
+    assert.equal(f.confirmations(), 0);
+    assert.match(f.runtime.statusText(), /control=on/);
+    assert.match(await f.runtime.consent(false, f.ctx), /control off/);
+    assert.equal(f.runtime.acceptsControl(), false);
+    f.runtime.sessionStart({ reason: 'reload' }, f.ctx); await settle();
+    assert.equal(f.runtime.acceptsControl(), true);
+    assert.equal(f.confirmations(), 0);
+  } finally { await f.runtime.sessionShutdown(); }
+});
+
 test('invalid startup values fail closed and command enabling still requires confirmation', async () => {
   for (const value of ['', 'true', 'yes', ' 1', '1 ', '2']) {
-    const f = fixture(200, { PI_AGENT_BUS_OPERATOR_NOTICES: value, PI_AGENT_BUS_OPERATOR_READ: value, PI_AGENT_BUS_OPERATOR_HISTORY: value });
+    const f = fixture(200, { PI_AGENT_BUS_OPERATOR_NOTICES: value, PI_AGENT_BUS_OPERATOR_READ: value, PI_AGENT_BUS_OPERATOR_HISTORY: value, PI_AGENT_BUS_CONTROL: value });
     f.runtime.sessionStart({}, f.ctx);
     try {
       await settle();

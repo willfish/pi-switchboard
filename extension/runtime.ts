@@ -327,7 +327,7 @@ export function createRuntime(deps: AgentBusDeps) {
         abort: new AbortController(), lifetime: new AbortController(), closed: false, unauthorized: false, busy: !ctx.isIdle(), explicitLabel: restoreLabel(ctx),
         model: projectModel(ctx.model), projectedName: "", label: "", invalidMetadata: false, putBusy: false, dirty: false, arrivals: 0, warnings: 0,
         attempt: 0, lastPut: -Infinity, presence: createPresenceState(), cached: [], inbox: createInboxState(),
-        control: false, consentGeneration: 0, status: "connecting", work: restoreWork(ctx),
+        control: env.PI_AGENT_BUS_CONTROL === '1', consentGeneration: 0, status: "connecting", work: restoreWork(ctx),
         sessionGeneration: 1n, permissionRevision: 0n, branchId: branchAnchor(ctx), runId: ctx.isIdle() ? null : uuid(),
         operatorRead: env.PI_AGENT_BUS_OPERATOR_READ === '1', operatorManage: false,
         operatorNotice: env.PI_AGENT_BUS_OPERATOR_NOTICES !== '0', operatorHistory: env.PI_AGENT_BUS_OPERATOR_HISTORY === '1',
