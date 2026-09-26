@@ -41,8 +41,9 @@ export function isStatusBoard(value, name) {
     && value.statuses.every(row => typeof row.agentId === 'string' && typeof row.summary === 'string');
 }
 
-export function speaker(message) {
-  return message?.from === OPERATOR_ID ? 'Operator' : message?.from ?? '';
+export function speaker(message, names = new Map()) {
+  if (message?.from === OPERATOR_ID) return 'Operator';
+  return names.get(message?.from) || message?.from || '';
 }
 
 export function channelSlug(raw) {
@@ -90,6 +91,7 @@ export function mountChannels(doc, session) {
   let open = false;
   let generation = 0;
   let draftId = null;
+  const labels = new Map();
   function status(text) { byId('channels-status').textContent = text; }
   async function loadList() {
     const own = generation;
@@ -129,9 +131,12 @@ export function mountChannels(doc, session) {
     } catch { /* Status is helpful context, not required to show history. */ }
   }
   function renderBoard(board) {
+    labels.clear();
+    for (const row of board.statuses) if (row.label) labels.set(row.agentId, row.label);
     const list = byId('channel-status');
     list.replaceChildren(...board.statuses.map(row => node('li', `${row.label || row.agentId}: ${row.summary}`)));
     if (!board.statuses.length) list.append(node('li', 'No check-ins yet.'));
+    render();
   }
   function render() {
     const topic = byId('channel-topic');
@@ -145,7 +150,7 @@ export function mountChannels(doc, session) {
     byId('channel-later').disabled = !page || page.caughtUp;
     const log = byId('channel-log');
     log.replaceChildren(...history.map(message => {
-      const who = speaker(message);
+      const who = speaker(message, labels);
       const item = node('article', '');
       item.className = 'slack-message';
       item.dataset.kind = who === 'Operator' ? 'operator' : 'agent';
@@ -214,6 +219,9 @@ export function mountChannels(doc, session) {
       byId('channel-create-name').value = ''; byId('channel-create-topic').value = '';
       await reload();
     }, () => { note.textContent = "Couldn't create that channel."; });
+  });
+  byId('channel-draft')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); byId('channel-composer')?.requestSubmit(); }
   });
   byId('channel-composer')?.addEventListener('submit', event => {
     event.preventDefault();

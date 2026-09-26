@@ -376,6 +376,7 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     byId('view-fleet').setAttribute('aria-pressed', String(viewName === 'fleet'));
     byId('view-communications').setAttribute('aria-pressed', String(viewName === 'communications'));
     byId('view-channels').setAttribute('aria-pressed', String(viewName === 'channels'));
+    doc.body.classList.toggle('channels-open', viewName === 'channels');
     void view.select(viewName === 'communications');
     if (viewName === 'channels') void channels.openView();
     else channels.closeView();

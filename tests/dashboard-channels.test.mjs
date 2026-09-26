@@ -6,6 +6,7 @@ import { isMessagePage, mergeHistory, channelMessagesPath, speaker, OPERATOR_ID,
 test('operator posts are labeled without impersonating an agent', () => {
   assert.equal(speaker({ from: OPERATOR_ID }), 'Operator');
   assert.equal(speaker({ from: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  assert.equal(speaker({ from: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, new Map([['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Ada']])), 'Ada');
 });
 
 test('channel composer can mint an id without crypto.randomUUID', () => {
