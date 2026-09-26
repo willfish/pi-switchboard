@@ -30,7 +30,8 @@ http_test_() ->
         fun security_headers_and_no_cors/0,
         fun no_mailbox_interference/0,
         fun selected_runtime_work_read/0,
-        fun fleet_work_snapshot_read/0
+        fun fleet_work_snapshot_read/0,
+        fun operator_channel_post_roundtrip/0
     ]}}}.
 
 setup() ->
@@ -145,6 +146,7 @@ proto_opts() ->
         {"/dashboard/api/v1/events", bus_operator_h, events},
         {"/dashboard/api/v1/work", bus_operator_h, work_fleet},
         {"/dashboard/api/v1/work/:agent_id", bus_operator_h, work},
+        {"/dashboard/api/v1/channels/:name/messages", bus_operator_h, channel_messages},
         {"/v1/agents", bus_http_h, list},
         {"/v1/agents/:agent_id", bus_http_h, agent},
         {"/v1/messages", bus_http_h, messages},
@@ -168,6 +170,26 @@ disabled_mode() ->
     application:set_env(pi_agent_bus, operator_access, loopback),
     ?assertEqual(<<"disabled">>, error_code(Body)),
     security(H).
+
+operator_channel_post_roundtrip() ->
+    {200, _, Bootstrap} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),
+    Hex = maps:get(<<"session">>, json_map(Bootstrap)),
+    Id = <<"33333333-3333-4333-8333-333333333333">>,
+    Body = bus_protocol:encode_map(#{<<"id">> => Id, <<"body">> => <<"hello from the operator">>}),
+    {200, _, Posted} = post("/dashboard/api/v1/channels/general/messages",
+        json() ++ origin_h() ++ session_h(Hex), Body),
+    {ok, Accepted} = bus_protocol:decode_json(Posted),
+    ?assertEqual(Id, maps:get(<<"id">>, Accepted)),
+    ?assertEqual(<<"general">>, maps:get(<<"channel">>, Accepted)),
+    ?assertEqual(<<"accepted">>, maps:get(<<"state">>, Accepted)),
+    {200, _, Again} = post("/dashboard/api/v1/channels/general/messages",
+        json() ++ origin_h() ++ session_h(Hex), Body),
+    ?assertEqual(Accepted, json_map(Again)),
+    {200, _, Page} = get("/dashboard/api/v1/channels/general/messages", session_h(Hex) ++ origin_h()),
+    {ok, #{<<"messages">> := Messages}} = bus_protocol:decode_json(Page),
+    [Message] = [M || M <- Messages, maps:get(<<"id">>, M) =:= Id],
+    ?assertEqual(bus_channels:operator_id(), maps:get(<<"from">>, Message)),
+    ?assertEqual(<<"hello from the operator">>, maps:get(<<"body">>, Message)).
 
 bootstrap_and_presence_roundtrip() ->
     {200, H, Body} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),

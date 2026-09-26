@@ -45,6 +45,14 @@ export function speaker(message) {
   return message?.from === OPERATOR_ID ? 'Operator' : message?.from ?? '';
 }
 
+/** Works on the plain HTTP console, where the secure-context UUID helper is absent. */
+export function newChannelMessageId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+  const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function mergeHistory(current, page, placement) {
   const seen = new Set(current.map(message => message.seq));
   const fresh = page.messages.filter(message => !seen.has(message.seq));
@@ -155,7 +163,7 @@ export function mountChannels(doc, session) {
     const note = byId('channel-post-status');
     const body = draft?.value.trim() ?? '';
     if (!body || !session.channelPost) { if (note) note.textContent = 'This server cannot share operator updates yet.'; return; }
-    draftId ??= crypto.randomUUID();
+    draftId ??= newChannelMessageId();
     const id = draftId;
     if (note) note.textContent = 'Sharing your update…';
     void session.channelPost(selected, id, body).then(async () => {
