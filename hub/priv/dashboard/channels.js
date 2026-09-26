@@ -66,6 +66,12 @@ export function messageTime(seconds) {
   return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+export function dayLabel(seconds) {
+  const date = new Date(Number(seconds) * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
 /** Works on the plain HTTP console, where the secure-context UUID helper is absent. */
 export function newChannelMessageId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -101,9 +107,10 @@ export function mountChannels(doc, session) {
     const names = byId('channel-names');
     names.replaceChildren();
     for (const channel of orderChannels(list.channels)) {
-      const button = node('button', `#${channel.name}`);
+      const button = node('button', `# ${channel.name}`);
       button.type = 'button';
       button.setAttribute('role', 'listitem');
+      button.dataset.name = channel.name;
       button.dataset.topic = channel.topic || '';
       button.setAttribute('aria-pressed', String(channel.name === selected));
       button.addEventListener('click', () => {
@@ -140,16 +147,37 @@ export function mountChannels(doc, session) {
   }
   function render() {
     const topic = byId('channel-topic');
-    byId('channel-title').textContent = `#${selected}`;
+    byId('channel-title').textContent = `# ${selected}`;
     byId('channel-draft').placeholder = `Message #${selected}`;
-    const chosen = [...byId('channel-names').children].find(button => button.textContent === `#${selected}`);
+    const chosen = [...byId('channel-names').children].find(button => button.dataset.name === selected);
     if (topic) topic.textContent = chosen?.dataset.topic || (page?.coverage === 'empty' ? 'No messages yet.' : '');
     const note = page?.coverage === 'gap' ? 'Some earlier messages expired.' : '';
     status(note || `${history.length} messages in #${selected}`);
     byId('channel-earlier').disabled = !page?.earlier;
     byId('channel-later').disabled = !page || page.caughtUp;
     const log = byId('channel-log');
-    log.replaceChildren(...history.map(message => {
+    const empty = history.length ? [] : [(() => {
+      const start = node('div', '');
+      start.className = 'slack-empty';
+      const blurb = chosen?.dataset.topic || `This is the very beginning of the #${selected} channel.`;
+      start.append(node('h3', `# ${selected}`), node('p', blurb));
+      return start;
+    })()];
+    let lastDay = '';
+    const rows = [];
+    for (const message of history) {
+      const day = dayLabel(message.postedAt);
+      if (day && day !== lastDay) {
+        lastDay = day;
+        rows.push(node('p', day));
+        rows.at(-1).className = 'slack-day';
+      }
+      rows.push(messageRow(message));
+    }
+    log.replaceChildren(...empty, ...rows);
+    log.scrollTop = log.scrollHeight;
+  }
+  function messageRow(message) {
       const who = speaker(message, labels);
       const item = node('article', '');
       item.className = 'slack-message';
@@ -167,8 +195,6 @@ export function mountChannels(doc, session) {
       body.append(meta, text);
       item.append(avatar, body);
       return item;
-    }));
-    log.scrollTop = log.scrollHeight;
   }
   function reset() {
     generation++;
@@ -179,7 +205,7 @@ export function mountChannels(doc, session) {
     byId('channel-log')?.replaceChildren();
     byId('channel-names')?.replaceChildren();
     byId('channel-status')?.replaceChildren();
-    const title = byId('channel-title'); if (title) title.textContent = '#general';
+    const title = byId('channel-title'); if (title) title.textContent = '# general';
     status('Disconnected. Channel history cleared.');
   }
   async function reload(keep = false) {

@@ -102,9 +102,9 @@
           <p class="slack-workspace">Switchboard</p>
           <div class="slack-section">
             <span>Channels</span>
-            <button id="channel-add" type="button" aria-haspopup="dialog" aria-controls="channel-create">Create a channel</button>
+            <button id="channel-add" type="button" aria-label="Create a channel" aria-haspopup="dialog" aria-controls="channel-create">+</button>
           </div>
-          <div id="channel-names" class="channel-list" role="list"></div>
+          <div id="channel-names" class="channel-list" role="list"><button type="button" data-name="general" aria-pressed="true" role="listitem"># general</button></div>
           <details class="slack-checkins">
             <summary>Check-ins</summary>
             <ul id="channel-status"></ul>
@@ -116,12 +116,13 @@
               <h3 id="channel-title">#general</h3>
               <p id="channel-topic" class="slack-topic"></p>
             </div>
-            <div class="slack-history">
+            <details class="slack-history">
+              <summary>History</summary>
               <button id="channel-earlier" type="button">Load older</button>
               <button id="channel-later" type="button">Newer</button>
               <button id="channel-start" type="button">Beginning</button>
               <button id="channel-refresh" type="button">Latest</button>
-            </div>
+            </details>
           </header>
           <div id="channel-log" class="channel-log" aria-live="polite"></div>
           <form id="channel-composer" class="slack-composer" aria-label="Message the selected channel">
@@ -129,7 +130,7 @@
             <textarea id="channel-draft" rows="2" maxlength="4000" placeholder="Message #general"></textarea>
             <div class="slack-composer-bar">
               <p id="channel-post-status" role="status"></p>
-              <button id="channel-send" type="submit">Send</button>
+              <button id="channel-send" type="submit" aria-label="Send">Send</button>
             </div>
           </form>
         </div>
