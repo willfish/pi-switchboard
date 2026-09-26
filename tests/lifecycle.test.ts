@@ -11,7 +11,10 @@ function fixture(extra: Record<string, any> = {}) {
   const ctx = context({ ui: { notify: (text: string) => notices.push(text) } });
   const runtime = createAgentBusExtension({ pi: sdk.pi, uuid: () => agentA, hostname: () => "fixture", pid: () => 5,
     env: { PI_AGENT_BUS_TOKEN: "synthetic" }, now: () => clock.time, wallNow: () => 1000, timers: clock,
-    subscribe: dormantSubscribe, fetch: async (_url, init) => { calls.push(init?.method ?? "GET"); if (init?.method === "PUT") puts.push(JSON.parse(init.body!)); return response(); }, ...extra });
+    subscribe: dormantSubscribe, fetch: async (url, init) => {
+      if (String(url).includes("/v1/channels")) return response();
+      calls.push(init?.method ?? "GET"); if (init?.method === "PUT") puts.push(JSON.parse(init.body!)); return response();
+    }, ...extra });
   return { clock, sdk, puts, calls, runtime, notices, ctx };
 }
 
@@ -34,7 +37,7 @@ it("factory binds the exact commands/tools and no network, clocks, UUID, hostnam
   const sdk = host(); const fail = () => { throw Error("factory effect"); };
   createAgentBusExtension({ pi: sdk.pi, env: { PI_AGENT_BUS_TOKEN: "synthetic" }, fetch: fail, uuid: fail, hostname: fail, now: fail, timers: { setTimeout: fail, clearTimeout: fail } });
   assert.deepEqual([...sdk.commands.keys()].sort(), ["agents", "bus", "label", "tell"]);
-  assert.deepEqual([...sdk.tools.keys()].sort(), ["list_agents", "report_work", "send_agent_message", "set_agent_label"]);
+  assert.deepEqual([...sdk.tools.keys()].sort(), ["list_agents", "list_channels", "post_channel", "read_channel", "report_work", "send_agent_message", "set_agent_label", "update_channel_status"]);
   assert.ok(sdk.events.has("agent_settled")); assert.ok(!sdk.events.has("agent_end")); assert.ok(!sdk.events.has("session_switch"));
 });
 
@@ -58,8 +61,8 @@ it("warns once for missing or invalid configuration and tools return explicit un
 it("startup never waits for registration; one PUT plus dirty flag coalesces 100 updates", async () => {
   const pending = Promise.withResolvers<ReturnType<typeof response>>();
   let inFlight = 0; let maximum = 0; const puts: any[] = [];
-  const f = fixture({ fetch: async (_url: string, init: any) => {
-    if (init.method !== "PUT") return response();
+  const f = fixture({ fetch: async (url: string, init: any) => {
+    if (String(url).includes("/v1/channels") || init.method !== "PUT") return response();
     puts.push(JSON.parse(init.body)); maximum = Math.max(maximum, ++inFlight);
     const result = puts.length === 1 ? await pending.promise : response(); inFlight--; return result;
   } });
@@ -74,7 +77,7 @@ it("startup never waits for registration; one PUT plus dirty flag coalesces 100 
 it("registration precedes subscription; synchronized receive plus fresh PUT is connected immediately", async () => {
   const register = Promise.withResolvers<ReturnType<typeof response>>();
   let subscribed = 0; let stream: Parameters<typeof subscribeOnce>[0] | undefined;
-  const f = fixture({ fetch: async (_url: string, init: any) => init.method === "PUT" ? register.promise : response(),
+  const f = fixture({ fetch: async (url: string, init: any) => String(url).includes("/v1/channels") ? response() : init.method === "PUT" ? register.promise : response(),
     subscribe: (options: Parameters<typeof subscribeOnce>[0]) => { subscribed++; stream = options; return dormantSubscribe(options); } });
   f.runtime.sessionStart({}, f.ctx); assert.equal(subscribed, 0); register.resolve(response()); await flush();
   assert.equal(subscribed, 1); assert.equal(f.runtime.status(), "degraded"); sync(stream!);
@@ -102,7 +105,7 @@ it("one jittered retry owner re-registers and resets only after 10 uninterrupted
 
 it("losing the 15 second registration lease cannot remain connected even with valid receive activity", async () => {
   let stream: Parameters<typeof subscribeOnce>[0]; let puts = 0;
-  const f = fixture({ fetch: async (_url: string, init: any) => init.method === "PUT" && ++puts > 1 ? response(503) : response(),
+  const f = fixture({ fetch: async (url: string, init: any) => String(url).includes("/v1/channels") ? response() : init.method === "PUT" && ++puts > 1 ? response(503) : response(),
     subscribe: (options: Parameters<typeof subscribeOnce>[0]) => { stream = options; return dormantSubscribe(options); } });
   f.runtime.sessionStart({}, f.ctx); await flush(); sync(stream!);
   await f.clock.advance(14999); stream!.onActivity(); assert.equal(f.runtime.status(), "connected");
@@ -113,7 +116,7 @@ it("losing the 15 second registration lease cannot remain connected even with va
 it("lease status expires at the PUT completion boundary, not only the next heartbeat", async () => {
   const registered = Promise.withResolvers<ReturnType<typeof response>>(); let puts = 0;
   let stream: Parameters<typeof subscribeOnce>[0]; const statuses: string[] = [];
-  const f = fixture({ fetch: async (_url: string, init: any) => init.method === "PUT" ? (++puts === 1 ? registered.promise : response(503)) : response(),
+  const f = fixture({ fetch: async (url: string, init: any) => String(url).includes("/v1/channels") ? response() : init.method === "PUT" ? (++puts === 1 ? registered.promise : response(503)) : response(),
     subscribe: (options: Parameters<typeof subscribeOnce>[0]) => { stream = options; return dormantSubscribe(options); } });
   f.runtime.sessionStart({}, context({ ui: { setStatus: (_key: string, text: string) => statuses.push(text) } }));
   assert.equal(f.runtime.status(), "connecting"); assert.match(f.runtime.statusText(), /status=connecting/);
@@ -156,8 +159,8 @@ it("current model, null and invalid model semantics preserve runtime ID and neve
 it("model events override different context through serialized PUT, then heartbeat and reconnect refresh context", async () => {
   const pending = Promise.withResolvers<ReturnType<typeof response>>(); const puts: any[] = [];
   const ends: ReturnType<typeof Promise.withResolvers<{ reason: "closed" }>>[] = [];
-  const f = fixture({ fetch: async (_url: string, init: any) => {
-    if (init.method !== "PUT") return response();
+  const f = fixture({ fetch: async (url: string, init: any) => {
+    if (String(url).includes("/v1/channels") || init.method !== "PUT") return response();
     puts.push(JSON.parse(init.body)); return puts.length === 1 ? pending.promise : response();
   }, subscribe: () => { const end = Promise.withResolvers<{ reason: "closed" }>(); ends.push(end); return end.promise; } });
   const ctx = context({ model: { provider: "context", id: "old" } });

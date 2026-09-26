@@ -9,6 +9,7 @@
   "docs/operator-protocol.md",
   "docs/protocol.md",
   "extension/client.ts",
+  "extension/channels.ts",
   "extension/commands.ts",
   "extension/inbox.ts",
   "extension/index.ts",

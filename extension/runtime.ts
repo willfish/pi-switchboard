@@ -9,6 +9,7 @@ import { createAnnouncer } from './operator-announcer.ts';
 import { isWorkSnapshot, normalizeWorkReport, type WorkSnapshot } from './operator-protocol.ts';
 import type { OperatorBinding, OperatorPermissions } from './operator-binding.ts';
 import { createOperatorBridge, bridgeCapabilities } from './operator-bridge.ts';
+import { areaChannel, formatChannelPage, statusSummary, CHANNEL_NAME, type ChannelPage } from './channels.ts';
 
 export type Env = Record<string, string | undefined>;
 export type AgentBusDeps = {
@@ -86,6 +87,8 @@ type Run = {
   operatorPush?: boolean; lastOperatorPoll?: number;
   bridge?: ReturnType<typeof createOperatorBridge>; operatorRead: boolean; operatorManage: boolean; operatorNotice: boolean; operatorHistory: boolean;
   operatorConfirmation?: AbortController; operatorConsentGeneration: number;
+  channelEpoch?: string; channelAfter: Record<string, string>; channelPages: Record<string, ChannelPage>;
+  channelSummary?: string; lastChannelSync: number; lastStatusPut: number; channelBusy: boolean; channelDirty: boolean;
 };
 
 export function createRuntime(deps: AgentBusDeps) {
@@ -198,6 +201,7 @@ export function createRuntime(deps: AgentBusDeps) {
             const read = !r.operatorPush || now() - (r.lastOperatorPoll ?? -Infinity) >= 15000;
             if (read) r.lastOperatorPoll = now();
             void r.bridge?.tick(read);
+            void syncChannels(r);
           });
         } else {
           r.error = "presence update failed";
@@ -311,6 +315,45 @@ export function createRuntime(deps: AgentBusDeps) {
     try { await Promise.race([fresh.deleteAgent(r.id, controller.signal).catch(() => {}), deadline]); }
     finally { timers.clearTimeout(timer); controller.abort(); }
   }
+  function rememberChannel(r: Run, name: string, page: ChannelPage) {
+    if (r.channelEpoch && r.channelEpoch !== page.epoch) { r.channelAfter = {}; r.channelPages = {}; }
+    r.channelEpoch = page.epoch;
+    const previous = r.channelPages[name]?.messages ?? [];
+    const seen = new Set(previous.map(message => message.seq));
+    const merged = [...previous, ...page.messages.filter(message => !seen.has(message.seq))].slice(-24);
+    if (merged.length) r.channelPages[name] = { ...page, messages: merged };
+    else if (!r.channelPages[name] && page.messages.length) r.channelPages[name] = page;
+    if (page.messages.length && page.toSequence !== "0") r.channelAfter[name] = page.toSequence;
+  }
+  async function syncChannels(r: Run) {
+    if (!online(r) || r.channelBusy || !r.client.ensureChannel || !r.client.putChannelStatus || !r.client.readChannel) return;
+    if (!r.channelDirty && now() - r.lastChannelSync < 30000) return;
+    r.channelBusy = true; r.channelDirty = false;
+    try {
+      const area = areaChannel(deps.cwd?.() ?? r.ctx.cwd);
+      const names = area === "general" ? ["general"] : ["general", area];
+      for (const name of names) {
+        const ensured = await r.client.ensureChannel(name, r.id, "", r.abort.signal);
+        if (!online(r) || r.client.isUnauthorized()) return;
+        if (ensured.status !== "ok") continue;
+      }
+      const summary = statusSummary({ label: r.label, busy: r.busy, objective: r.work.objective, step: r.work.currentStep, project: r.work.project });
+      if (summary !== r.channelSummary || now() - r.lastStatusPut >= 60000) {
+        for (const name of names) {
+          const posted = await r.client.putChannelStatus(name, { from: r.id, summary, label: r.label, project: r.work.project ?? "", area }, r.abort.signal);
+          if (!online(r)) return;
+          if (posted.status === "ok") { r.channelSummary = summary; r.lastStatusPut = now(); }
+        }
+      }
+      for (const name of names) {
+        const page = await r.client.readChannel(name, r.channelAfter[name] ?? "0", r.abort.signal);
+        if (!online(r) || page.status !== "ok") continue;
+        rememberChannel(r, name, page.page);
+      }
+      r.lastChannelSync = now();
+    } catch { /* A missed check-in is not a prompt and is not retried as a new post. */ }
+    finally { if (online(r)) r.channelBusy = false; }
+  }
   const runtime = {
     sessionStart(_event: { reason?: string }, ctx: ExtensionContext): void {
       if (current) { const old = current; close(old); current = undefined; void cleanup(old); }
@@ -331,7 +374,8 @@ export function createRuntime(deps: AgentBusDeps) {
         sessionGeneration: 1n, permissionRevision: 0n, branchId: branchAnchor(ctx), runId: ctx.isIdle() ? null : uuid(),
         operatorRead: env.PI_AGENT_BUS_OPERATOR_READ === '1', operatorManage: false,
         operatorNotice: env.PI_AGENT_BUS_OPERATOR_NOTICES !== '0', operatorHistory: env.PI_AGENT_BUS_OPERATOR_HISTORY === '1',
-        operatorConsentGeneration: 0 };
+        operatorConsentGeneration: 0, channelAfter: {}, channelPages: {}, lastChannelSync: -Infinity,
+        lastStatusPut: -Infinity, channelBusy: false, channelDirty: true };
       current = r;
       r.announcer = createAnnouncer({ now,
         snapshot: () => ({ schemaVersion: 1, agentId: r.id, sessionId: r.sessionId,
@@ -377,7 +421,7 @@ export function createRuntime(deps: AgentBusDeps) {
       if (ctx) r.ctx = ctx;
       if (busy && r.runId === null) r.runId = uuid();
       if (!busy && r.runId !== null) { const ended = r.runId; r.runId = null; r.bridge?.settled(ended); }
-      r.busy = busy; requestPut(r);
+      r.busy = busy; r.channelDirty = true; requestPut(r);
     },
     toolActivity(event: { toolCallId: string; toolName: string; isError?: boolean }, state: 'started' | 'ended', ctx?: ExtensionContext) {
       const r = current; if (!r || !online(r)) return;
@@ -438,7 +482,7 @@ export function createRuntime(deps: AgentBusDeps) {
       const label = clear ? undefined : validateLabel(text);
       if (!clear && !label) throw new Error("label must be nonempty, single-line and at most 200 code points");
       deps.pi?.appendEntry(LABEL_ENTRY, { label: label ?? "" });
-      r.explicitLabel = label; metadata(r); requestPut(r); return r.label;
+      r.explicitLabel = label; r.channelDirty = true; metadata(r); requestPut(r); return r.label;
     },
     label: () => current?.label ?? "agent bus unavailable",
     reportWork(work: unknown): WorkSnapshot | string {
@@ -460,7 +504,7 @@ export function createRuntime(deps: AgentBusDeps) {
           }
         }
       }
-      requestPut(r);
+      r.channelDirty = true; requestPut(r);
       return structuredClone(stored);
     },
     currentWork: () => current ? structuredClone(current.work) : emptyWork(),
@@ -515,6 +559,7 @@ export function createRuntime(deps: AgentBusDeps) {
     listCached: () => [...(current?.cached ?? [])],
     runtimeId: () => current?.id,
     status: () => { if (current) refreshHealth(current); return current?.status ?? "disabled"; },
+    isBusy: () => current?.busy ?? false,
     acceptsControl: () => current?.control ?? false,
     version: () => generation,
     isCurrent: (id: string | undefined, version = generation) => !!current && active(current) && current.id === id && version === generation,
@@ -523,12 +568,44 @@ export function createRuntime(deps: AgentBusDeps) {
       refreshHealth(r);
       return `status=${r.status} id=${r.id} session=${r.sessionId} unread=${unread(r)} control=${r.control ? "on" : "off"} operator-read=${r.operatorRead ? 'on' : 'off'} operator-manage=${r.operatorManage ? 'on' : 'off'} operator-notices=${r.operatorNotice ? 'on' : 'off'} operator-history=${r.operatorHistory ? 'on' : 'off'} run=${r.runId ?? 'none'} pending-control=${r.inbox.pendingControl ? "occupied; /reload recovers unmatched submission" : "empty"}${r.error ? ` error=${r.error}` : ""}`;
     },
+    channelText() {
+      const r = current;
+      if (!r) return "agent bus unavailable";
+      const pages = Object.values(r.channelPages);
+      return pages.length ? pages.map(formatChannelPage).join("\n\n") : "no channel window yet; check-in runs after registration";
+    },
+    async readChannel(name: string, signal?: AbortSignal) {
+      const r = current;
+      if (!r || !online(r) || !r.client.readChannel || !CHANNEL_NAME.test(name)) return { status: "not_sent" as const, reason: "agent bus unavailable" };
+      const page = await r.client.readChannel(name, "0", signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+      if (page.status === "ok" && online(r)) rememberChannel(r, name, page.page);
+      return page;
+    },
+    async postChannel(name: string, body: string, signal?: AbortSignal) {
+      const r = current;
+      if (!r || !online(r) || !r.client.postChannel || !CHANNEL_NAME.test(name)) return { status: "not_sent" as const, reason: "agent bus unavailable" };
+      return r.client.postChannel(name, { id: uuid(), from: r.id, body }, signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+    },
+    async updateChannelStatus(name: string, summary: string, signal?: AbortSignal) {
+      const r = current;
+      if (!r || !online(r) || !r.client.putChannelStatus || !CHANNEL_NAME.test(name)) return { status: "not_sent" as const, reason: "agent bus unavailable" };
+      const area = areaChannel(deps.cwd?.() ?? r.ctx.cwd);
+      const result = await r.client.putChannelStatus(name, { from: r.id, summary, label: r.label, project: r.work.project ?? "", area }, signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+      if (result.status === "ok" && online(r)) r.channelSummary = summary;
+      return result;
+    },
+    async listChannels(signal?: AbortSignal) {
+      const r = current;
+      if (!r || !online(r) || !r.client.listChannels) return { status: "not_sent" as const, reason: "agent bus unavailable" };
+      return r.client.listChannels(signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+    },
     async handleCommand(name: string, args: string, ctx: ExtensionContext): Promise<string> {
       if (name === "bus") {
         const operator = /^operator (read|manage|notices|history) (on|off)$/.exec(args.trim());
         if (operator) return runtime.operatorConsent(operator[1] as 'read' | 'manage' | 'notices' | 'history', operator[2] === 'on', ctx);
         if (args.trim() === "control on") return runtime.consent(true, ctx);
         if (args.trim() === "control off") return runtime.consent(false, ctx);
+        if (args.trim() === "channels") return runtime.channelText();
         return runtime.statusText();
       }
       if (name === "label") return args.trim() ? runtime.setLabel(args, args.trim() === "--clear") : runtime.label();

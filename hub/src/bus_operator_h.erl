@@ -70,6 +70,9 @@ dispatch(Req, operations) ->
     end;
 dispatch(Req, operation_status) -> read(Req, operation_status);
 dispatch(Req, operation_cancel) -> mutation_op(Req, operation_cancel);
+dispatch(Req, channels) -> read(Req, channels);
+dispatch(Req, channel_messages) -> read(Req, channel_messages);
+dispatch(Req, channel_status) -> read(Req, channel_status);
 dispatch(Req, _) -> error_reply(Req, 404, <<"not_found">>, <<"unknown route">>).
 
 mutation(Req, Kind) ->
@@ -342,6 +345,27 @@ read_page(Req, operation_list, Conn, Nonce, Deadline) ->
     operation_list(Req, Conn, Nonce, Deadline);
 read_page(Req, search, Conn, Nonce, Deadline) ->
     search_page(Req, Conn, Nonce, Deadline);
+read_page(Req, channels, _Conn, _Nonce, Deadline) ->
+    case cowboy_req:qs(Req) of
+        <<>> ->
+            case bus_store:channels(Deadline) of
+                {ok, Doc} -> json_reply(Req, 200, Doc);
+                {error, Reason} -> store_error(Req, Reason)
+            end;
+        _ -> store_error(Req, invalid_schema)
+    end;
+read_page(Req, channel_messages, _Conn, _Nonce, Deadline) ->
+    channel_messages(Req, Deadline);
+read_page(Req, channel_status, _Conn, _Nonce, Deadline) ->
+    case {channel_name(Req), cowboy_req:qs(Req)} of
+        {{ok, Name}, <<>>} ->
+            case bus_store:channel_statuses(Name, Deadline) of
+                {ok, Doc} -> json_reply(Req, 200, Doc);
+                {error, Reason} -> store_error(Req, Reason)
+            end;
+        {{error, Reason}, _} -> store_error(Req, Reason);
+        _ -> store_error(Req, invalid_schema)
+    end;
 read_page(Req, events, Conn, Nonce, Deadline) ->
     case cursor(Req, 128) of
         {error, Reason} -> store_error(Req, Reason);
@@ -353,6 +377,33 @@ read_page(Req, events, Conn, Nonce, Deadline) ->
                 {error, Reason} -> store_error(Req, Reason)
             end
     end.
+
+channel_name(Req) ->
+    case bus_channels:decode_name(cowboy_req:binding(name, Req)) of
+        {ok, Name} -> {ok, Name};
+        {error, Reason} -> {error, Reason}
+    end.
+
+channel_messages(Req, Deadline) ->
+    case channel_name(Req) of
+        {error, Reason} -> store_error(Req, Reason);
+        {ok, Name} ->
+            case query_pairs(Req) of
+                {error, Reason} -> store_error(Req, Reason);
+                {ok, Pairs} ->
+                    case bus_channels:parse_query(Pairs, operator) of
+                        {error, Reason} -> store_error(Req, Reason);
+                        {ok, Query} ->
+                            case bus_store:channel_read(Name, Query, Deadline) of
+                                {ok, Page} -> json_reply(Req, 200, Page);
+                                {error, Reason} -> store_error(Req, Reason)
+                            end
+                    end
+            end
+    end.
+
+query_pairs(Req) ->
+    try {ok, cowboy_req:parse_qs(Req)} catch _:_ -> {error, invalid_schema} end.
 
 search_page(Req, Conn, Nonce, Deadline) ->
     case search_query(Req) of

@@ -69,7 +69,7 @@ it("non-TUI, rejected, cancelled and throwing dialogs cannot enable control, and
   }
   await f.sdk.tools.get("set_agent_label").execute("id", { label: "/bus control on" });
   assert.equal(f.runtime.acceptsControl(), false);
-  assert.equal(f.sdk.tools.size, 4); await f.runtime.sessionShutdown();
+  assert.equal(f.sdk.tools.size, 8); await f.runtime.sessionShutdown();
 });
 
 it("reserves control before synchronous sendUserMessage and releases only an exact user text identity", async () => {

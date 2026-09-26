@@ -1,6 +1,7 @@
 import { eventCursor } from './operator-events.js';
 import { mountOperatorControls } from './operator-controls.js';
 import { plainLabel } from './operator-actions.js';
+import { mountChannels } from './channels.js';
 
 export function historyTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value)) return null;
@@ -272,7 +273,7 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
         metadata.append(technical);
         for (const [id, label] of [[work.parentWorkId, "Show parent task"], [work.delegatedWorkId, "Show related task"]]) if (id) {
           const link = node('button', label); link.type = 'button';
-          link.addEventListener('click', () => { select(false); inspector.clear(); focusWork(id); }); body.append(link);
+          link.addEventListener('click', () => { select('fleet'); inspector.clear(); focusWork(id); }); body.append(link);
         }
         if (work.evidence.length) body.append(node('h3', 'Supporting details'));
         for (const evidence of work.evidence) body.append(evidenceNode(evidence));
@@ -329,7 +330,7 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
       for (const id of participants) {
         const link = node('button', `Open details agent ${id}`); link.type = 'button';
         link.disabled = !resolveAgent(id);
-        link.addEventListener('click', () => { const agent = resolveAgent(id); if (agent) { select(false); showRuntime(agent); } });
+        link.addEventListener('click', () => { const agent = resolveAgent(id); if (agent) { select('fleet'); showRuntime(agent); } });
         root.append(link);
       }
       if (p.count) root.append(node('p', `${p.count} updates were lost or couldn't be confirmed.`));
@@ -343,14 +344,14 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     byId('communications-count').textContent = `${records.length} of ${current.events.length} events on this page`;
   }
   const view = createCommunications({ operator, onObserved,
-    onUpdate() { onUpdate(); controls.invalidate(); },
+    onUpdate() { onUpdate(); controls.invalidate(); void channels.refresh(true); },
     onPush(value) { onPush(value); controls.setPush(value); }, render(state) {
     current = state;
     if (!state.connected) {
       search = ''; category = 'communications'; byId('communications-category').value = category;
       byId('communications-search').value = '';
       for (const id of ['communications-query', 'communications-participant', 'communications-work', 'communications-thread', 'communications-outcome', 'communications-from', 'communications-to']) byId(id).value = '';
-      inspector.clear(); controls.disconnect(); history.length = 0;
+      inspector.clear(); controls.disconnect(); channels.reset(); history.length = 0;
     }
     byId('communications-follow').disabled = !state.connected;
     byId('communications-status').textContent = !state.connected ? "Disconnected. Messages cleared."
@@ -367,15 +368,21 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     byId('communications-follow').checked = state.following;
     if (lastEvents !== state.events) { lastEvents = state.events; rows(); }
   } });
-  function select(communications) {
-    byId('runtimes').hidden = communications;
-    byId('communications').hidden = !communications;
-    byId('view-fleet').setAttribute('aria-pressed', String(!communications));
-    byId('view-communications').setAttribute('aria-pressed', String(communications));
-    void view.select(communications);
+  const channels = mountChannels(doc, operator);
+  function select(viewName) {
+    byId('runtimes').hidden = viewName !== 'fleet';
+    byId('communications').hidden = viewName !== 'communications';
+    byId('channels').hidden = viewName !== 'channels';
+    byId('view-fleet').setAttribute('aria-pressed', String(viewName === 'fleet'));
+    byId('view-communications').setAttribute('aria-pressed', String(viewName === 'communications'));
+    byId('view-channels').setAttribute('aria-pressed', String(viewName === 'channels'));
+    void view.select(viewName === 'communications');
+    if (viewName === 'channels') void channels.openView();
+    else channels.closeView();
   }
-  byId('view-fleet').addEventListener('click', () => select(false));
-  byId('view-communications').addEventListener('click', () => select(true));
+  byId('view-fleet').addEventListener('click', () => select('fleet'));
+  byId('view-communications').addEventListener('click', () => select('communications'));
+  byId('view-channels').addEventListener('click', () => select('channels'));
   byId('communications-query-submit').addEventListener('click', () => {
     const filters = {};
     for (const [field, key] of [['communications-query', 'q'], ['communications-participant', 'participant'],
@@ -421,7 +428,7 @@ export function mountConsole(doc, operator, { isWatched = () => false, toggleWat
     if (!selectedRuntime) return;
     search = selectedRuntime.target.agentId.toLowerCase();
     byId('communications-search').value = selectedRuntime.target.agentId;
-    rows(); select(true);
+    rows(); select('communications');
   });
   return { ...view,
     selectRuntime: showRuntime,

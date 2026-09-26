@@ -12,7 +12,9 @@
     unsubscribe/2,
     pull_presence/2, pull_presence/3,
     operator_registration/1, operator_registration/2, operator_registration/3,
-    operator_registrations/1, operator_registrations/2
+    operator_registrations/1, operator_registrations/2,
+    channels/1, channel_ensure/4, channel_post/3, channel_read/3,
+    channel_status/3, channel_statuses/2
 ]).
 
 -export([
@@ -85,6 +87,13 @@ operator_registrations(Pid, Deadline) when is_pid(Pid), is_integer(Deadline) ->
         _ -> admit(Pid, operator_registrations, Deadline)
     end.
 
+channels(Deadline) when is_integer(Deadline) -> call(channels, Deadline).
+channel_ensure(Name, Topic, From, Deadline) -> call({channel_ensure, Name, Topic, From}, Deadline).
+channel_post(Name, Post, Deadline) -> call({channel_post, Name, Post}, Deadline).
+channel_read(Name, Query, Deadline) -> call({channel_read, Name, Query}, Deadline).
+channel_status(Name, Status, Deadline) -> call({channel_status, Name, Status}, Deadline).
+channel_statuses(Name, Deadline) -> call({channel_statuses, Name}, Deadline).
+
 deadline() -> erlang:monotonic_time(millisecond) + ?CALL_TIMEOUT_MS.
 
 call(Op, Deadline) when is_integer(Deadline) ->
@@ -125,8 +134,10 @@ init([]) ->
     {ok, #{
         model => bus_model:new(),
         subs => #{}, discovery => bus_discovery:new(),
+        channels => bus_channels:new(erlang:system_time(second)),
         last_expiry => undefined, presence_dispatch => false
     }}.
+
 
 handle_call(Request, From, State) ->
     handle_call_at(Request, From, State, clock()).
@@ -174,7 +185,7 @@ expire_state(State, {Now, _Wall} = Clock) ->
             Dead = lists:sort([Id || Id <- maps:keys(maps:get(agents,Model0)), not maps:is_key(Id,Live)]),
             D = bus_discovery:expire(Now,maps:get(discovery,State)),
             State1 = lists:foldl(fun drop_sub_any/2, State#{model := Model1, last_expiry := Now, discovery := D}, Dead),
-            lists:foldl(fun(Id, Acc) -> changed(Id, Acc, Clock) end, State1, Dead)
+            expire_channels(lists:foldl(fun(Id, Acc) -> changed(Id, Acc, Clock) end, State1, Dead), Clock)
     end.
 
 run_op(Deadline, Op, Pid, State, Clock) ->
@@ -278,6 +289,58 @@ do_op({accept_mail, Msg}, State, {Mono, Wall} = Clock) ->
             {{ok, Result}, State#{model := Model1}};
         {error, Reason} ->
             {{error, Reason}, State}
+    end;
+do_op(channels, State, _Clock) ->
+    {{ok, bus_channels:list(maps:get(channels, State))}, State};
+do_op({channel_ensure, Name, Topic, From}, State, {Mono, Wall}) ->
+    case live_sender(State, From, Mono) of
+        false -> {{error, not_found}, State};
+        true ->
+            case bus_channels:ensure(maps:get(channels, State), Name, Topic, Wall) of
+                {error, Reason} -> {{error, Reason}, State};
+                {ok, Channels, Changed} ->
+                    publish_channels(Changed),
+                    {{ok, channel_ready(Channels, Name)}, State#{channels => Channels}}
+            end
+    end;
+do_op({channel_post, Name, {Id, From, Body}}, State, {Mono, Wall}) ->
+    Channels0 = maps:get(channels, State),
+    case bus_channels:classify(Channels0, Name, From, Id, <<"say">>, Body) of
+        {duplicate, Result} -> {{ok, Result}, State};
+        {error, Reason} -> {{error, Reason}, State};
+        fresh ->
+            case live_sender(State, From, Mono) of
+                false -> {{error, not_found}, State};
+                true ->
+                    case bus_channels:post(Channels0, Name, From, Id, Body, Mono, Wall) of
+                        {error, Reason} -> {{error, Reason}, State};
+                        {ok, Channels1, Result} ->
+                            publish_channels(true),
+                            {{ok, Result}, State#{channels => Channels1}}
+                    end
+            end
+    end;
+do_op({channel_read, Name, Query}, State, _Clock) ->
+    case bus_channels:read(maps:get(channels, State), Name, Query) of
+        {error, Reason} -> {{error, Reason}, State};
+        {ok, Page} -> {{ok, Page}, State}
+    end;
+do_op({channel_status, Name, Status}, State, {Mono, Wall}) ->
+    From = maps:get(<<"from">>, Status),
+    case live_sender(State, From, Mono) of
+        false -> {{error, not_found}, State};
+        true ->
+            case bus_channels:put_status(maps:get(channels, State), Name, Status, Mono, Wall) of
+                {error, Reason} -> {{error, Reason}, State};
+                {ok, Channels, Result} ->
+                    publish_channels(true),
+                    {{ok, Result}, State#{channels => Channels}}
+            end
+    end;
+do_op({channel_statuses, Name}, State, _Clock) ->
+    case bus_channels:statuses(maps:get(channels, State), Name) of
+        {error, Reason} -> {{error, Reason}, State};
+        {ok, Doc} -> {{ok, Doc}, State}
     end;
 do_op({subscribe, AgentId, Pid}, State, {Mono, _Wall} = Clock) ->
     case bus_model:has_agent(maps:get(model, State), AgentId, Mono) of
@@ -474,6 +537,23 @@ observe(Event) ->
     try bus_operator_journal:offer(Event)
     catch _:_ -> ok
     end.
+
+expire_channels(State, {Mono, Wall}) ->
+    case maps:find(channels, State) of
+        error -> State;
+        {ok, Channels} -> State#{channels => bus_channels:expire(Channels, Mono, Wall)}
+    end.
+
+live_sender(State, From, Mono) ->
+    bus_model:has_agent(maps:get(model, State), From, Mono).
+
+publish_channels(false) -> ok;
+publish_channels(true) -> bus_operator_updates:publish(browser).
+
+channel_ready(Channels, Name) ->
+    [Row] = [Item || Item <- maps:get(<<"channels">>, bus_channels:list(Channels)),
+        maps:get(<<"name">>, Item) =:= Name],
+    #{<<"channel">> => Name, <<"topic">> => maps:get(<<"topic">>, Row), <<"state">> => <<"ready">>}.
 
 %% TTL, display time and discovery revisions share one operation instant.
 %% Absolute request deadlines deliberately continue to sample real milliseconds.

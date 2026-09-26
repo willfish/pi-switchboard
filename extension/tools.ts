@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentBusRuntime } from "./runtime.ts";
 import { describeOutcome, formatAgentList } from "./commands.ts";
+import { CHANNEL_NAME, formatChannelPage, statusSummary } from "./channels.ts";
 
 export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
   const nullableText = () => Type.Union([Type.String(), Type.Null()]);
@@ -42,6 +43,42 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       if (signal?.aborted) throw new Error("cancelled");
       const label = runtime.setLabel(params.label);
       return { content: [{ type: "text", text: label }], details: { label } };
+    } });
+  pi.registerTool({ name: "list_channels", label: "List channels", description: "List shared Switchboard channels. #general is the fleet check-in. Also read the channel for the current project when working in the same area. This is a recent directory, not full history.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, signal) {
+      if (signal?.aborted) throw new Error("cancelled");
+      const result = await runtime.listChannels(signal);
+      if (result.status !== "ok") throw new Error(describeOutcome(result));
+      const text = result.channels.map(channel => `#${channel.name} retained=${channel.retained} last=${channel.lastSequence} ${channel.topic}`).join("\n") || "no channels";
+      return { content: [{ type: "text", text }], details: { epoch: result.epoch, channels: result.channels } };
+    } });
+  pi.registerTool({ name: "read_channel", label: "Read channel", description: "Read the recent window for one channel, or the forward delta since this runtime's cursor. Do not page older history; the operator console keeps that. Check #general and the area channel at the start of work and when coordination details change.",
+    parameters: Type.Object({ channel: Type.String() }),
+    async execute(_id, params, signal) {
+      if (signal?.aborted) throw new Error("cancelled");
+      if (!CHANNEL_NAME.test(params.channel)) throw new Error("invalid channel");
+      const result = await runtime.readChannel(params.channel, signal);
+      if (result.status !== "ok") throw new Error(describeOutcome(result));
+      return { content: [{ type: "text", text: formatChannelPage(result.page) }], details: { page: result.page } };
+    } });
+  pi.registerTool({ name: "post_channel", label: "Post to channel", description: "Post one coordination note to a channel. Use #general for fleet-wide notes and the project channel when the detail only matters to agents in that area. Acceptance is stored once in hub memory. A lost response is outcome unknown: check the channel before posting again. Do not post secrets, credentials, hidden reasoning, or raw tool output.",
+    parameters: Type.Object({ channel: Type.String(), body: Type.String() }),
+    async execute(_id, params, signal) {
+      if (signal?.aborted) throw new Error("cancelled");
+      const result = await runtime.postChannel(params.channel, params.body, signal);
+      return { content: [{ type: "text", text: result.status === "accepted" ? `accepted into #${params.channel}` : describeOutcome(result) }], details: result };
+    } });
+  pi.registerTool({ name: "update_channel_status", label: "Update channel status", description: "Upsert this runtime's check-in on a channel. Identical text refreshes the board without another history packet. A changed summary adds one status note. Call this when the objective, step, or area changes, in addition to the automatic check-in.",
+    parameters: Type.Object({ channel: Type.Optional(Type.String()), summary: Type.Optional(Type.String()) }),
+    async execute(_id, params, signal) {
+      if (signal?.aborted) throw new Error("cancelled");
+      const channel = params.channel && params.channel.length > 0 ? params.channel : "general";
+      if (!CHANNEL_NAME.test(channel)) throw new Error("invalid channel");
+      const summary = params.summary && params.summary.trim().length > 0 ? params.summary : statusSummary({ label: runtime.label(), busy: runtime.isBusy(), objective: runtime.currentWork().objective, step: runtime.currentWork().currentStep, project: runtime.currentWork().project });
+      const result = await runtime.updateChannelStatus(channel, summary, signal);
+      if (result.status !== "ok") throw new Error(describeOutcome(result));
+      return { content: [{ type: "text", text: `status ${result.state} on #${channel}` }], details: result };
     } });
   pi.registerTool({ name: "send_agent_message", label: "Send agent message", description: "Send a message to a freshly resolved peer. The default message is delivered to that agent and starts or continues its work. Prompt and steer still require receiver control consent. Acceptance is not proof the peer finished the work; never automatically resend an uncertain outcome.",
     parameters: Type.Object({ to: Type.String(), body: Type.String(), kind: Type.Optional(StringEnum(["notice", "prompt", "steer"] as const)) }),

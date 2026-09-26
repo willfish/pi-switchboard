@@ -292,6 +292,7 @@ describe("extension factory", () => {
     const runtime = createAgentBusExtension({ uuid: () => agentA,
       env: { PI_AGENT_BUS_TOKEN: token, PI_AGENT_BUS_URL: baseUrl },
       fetch: async (_url, init) => {
+        if (String(_url).includes("/v1/channels")) return jsonResponse(200, { epoch: agentA, channels: [] });
         if (_url.endsWith('/v1/operator/announce')) return jsonResponse(404, {});
         if (init?.method === "PUT" || init?.method === "DELETE") return jsonResponse(204, null);
         if (init?.method === "POST") { posts++; return jsonResponse(202, {}); }
@@ -328,6 +329,7 @@ describe("extension factory", () => {
         const runtime = createAgentBusExtension({ uuid: () => agentA,
           env: { PI_AGENT_BUS_TOKEN: token, PI_AGENT_BUS_URL: baseUrl },
           fetch: async (url, init) => {
+            if (url.includes("/v1/channels")) return jsonResponse(200, { epoch: agentA, channels: [] });
             if (url.endsWith('/v1/operator/announce')) return jsonResponse(404, {});
             if (init?.method === "PUT" || init?.method === "DELETE") return jsonResponse(204, null);
             if (init?.method === "POST") { posts++; return jsonResponse(202, {}); }

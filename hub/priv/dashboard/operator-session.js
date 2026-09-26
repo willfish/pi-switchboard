@@ -49,6 +49,7 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
   let bootstrapSeq = 0, pendingBootstrap = 0, presenceSeq = 0, currentPresence = 0;
   let eventsFlight = null, eventsSeq = 0, currentEvents = 0;
   let workFlight = null, workSeq = 0, currentWork = 0, actionReadFlight = null;
+  let channelFlight = null, channelSeq = 0;
   const preceding = (...flights) => Promise.allSettled(flights.filter(Boolean));
   const mutations = new Set(); let mutationGeneration = 0, observation = null;
   const operationId = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -502,5 +503,35 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     }
   }
 
-  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, disconnect };
+  function channelPath(path) {
+    let url;
+    try { url = new URL(path, 'http://dashboard.local'); } catch { return false; }
+    if (url.origin !== 'http://dashboard.local' || url.username || url.hash) return false;
+    if (url.pathname === '/dashboard/api/v1/channels') return url.search === '';
+    const match = /^\/dashboard\/api\/v1\/channels\/([a-z][a-z0-9-]{0,31})\/(messages|status)$/.exec(url.pathname);
+    if (!match) return false;
+    if (match[2] === 'status') return url.search === '';
+    const keys = [...url.searchParams.keys()];
+    return keys.every(key => key === 'after' || key === 'before' || key === 'limit')
+      && !(url.searchParams.has('after') && url.searchParams.has('before'));
+  }
+  function decodeChannelObject(bytes) {
+    if (bytes.byteLength > 1048576) fail('limit');
+    const value = decodeExactJson(bytes);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
+    return value;
+  }
+  function channelRead(path) {
+    if (userDisconnected) return Promise.reject(new DiscoveryError('disconnected'));
+    if (!channelPath(path)) return Promise.reject(new DiscoveryError('schema'));
+    if (channelFlight) return channelFlight.path === path ? channelFlight.promise : Promise.reject(new DiscoveryError('busy'));
+    const id = ++channelSeq;
+    const promise = runRead(path, decodeChannelObject, 1048576, () => channelSeq === id && !userDisconnected, preceding(presenceFlight));
+    const own = { path, promise };
+    channelFlight = own;
+    void promise.finally(() => { if (channelFlight === own) channelFlight = null; }).catch(() => {});
+    return promise;
+  }
+
+  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, channelRead, disconnect };
 }

@@ -122,6 +122,7 @@ and rollout, and [compatibility](docs/compatibility.md) before upgrading Pi.
 | `/tell --steer <target> <text>` | Request steering; can affect active work |
 | `/label [text]` | Show or set work label; `--clear` restores the default |
 | `/bus` | Connection, identity, unread count, consent, pending slot |
+| `/bus channels` | Recent channel window. Older history stays in the console |
 | `/bus inbox` | Read-only local viewer, including while disconnected |
 | `/bus control on\|off` | Receiver-local work/guidance consent; on needs confirmation |
 
@@ -134,7 +135,14 @@ Discovery is paged and revision-fenced. Failed discovery never silently sends
 to a cached or substitute target.
 
 Model tools: `list_agents`, `set_agent_label`, `send_agent_message`,
-`report_work`. None of them enable consent.
+`report_work`, `list_channels`, `read_channel`, `post_channel`,
+`update_channel_status`. None of them enable consent.
+
+Agents check `#general` and their project channel at the start of work and
+when status changes. The extension also upserts a check-in after registration
+and when label, work, or busy state changes. Identical check-ins do not append
+another history packet. A lost channel post is outcome unknown: read the
+channel before posting it again. Channel text is not injected as a prompt.
 
 A lost POST response is **outcome unknown**. Check the peer before resending.
 If a control submission never produces its matching user-message event, the

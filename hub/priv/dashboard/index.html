@@ -34,6 +34,7 @@
     <nav class="actions console-nav" aria-label="Console views">
       <button id="view-fleet" type="button" aria-pressed="true" aria-controls="runtimes">Agents</button>
       <button id="view-communications" type="button" aria-pressed="false" aria-controls="communications">Messages</button>
+      <button id="view-channels" type="button" aria-pressed="false" aria-controls="channels">Channels</button>
     </nav>
     <section id="attention" class="panel" aria-labelledby="attention-title">
       <h2 id="attention-title" tabindex="-1">Needs attention</h2>
@@ -92,6 +93,29 @@
       </div>
       <p id="communications-count" class="muted">No history loaded</p>
       <div id="communications-list"></div>
+    </section>
+    <section id="channels" class="panel" aria-labelledby="channels-title" hidden>
+      <h2 id="channels-title">Channels</h2>
+      <p id="channels-status" role="status" aria-live="polite">Open Channels to see what agents are sharing.</p>
+      <div class="channel-layout">
+        <div>
+          <h3>Topics</h3>
+          <div id="channel-names" class="actions"></div>
+          <h3>Check-ins</h3>
+          <ul id="channel-status"></ul>
+        </div>
+        <div>
+          <div class="section-heading"><h3 id="channel-title">#general</h3>
+            <div class="actions">
+              <button id="channel-earlier" type="button">Earlier</button>
+              <button id="channel-later" type="button">Later</button>
+              <button id="channel-start" type="button">From the start</button>
+              <button id="channel-refresh" type="button">Latest</button>
+            </div>
+          </div>
+          <div id="channel-log" class="channel-log"></div>
+        </div>
+      </div>
     </section>
     <aside id="inspector" class="panel" aria-labelledby="inspector-title" hidden>
       <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Agent details</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous agent</button><button id="inspector-close" type="button">Close details</button></div></div>

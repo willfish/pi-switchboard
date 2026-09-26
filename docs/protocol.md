@@ -98,6 +98,27 @@ Clients stage snapshot chunks and commit atomically. The first catch-up delta is
 
 The parser enforces actual raw bytes. The reducer's separate 256 MiB staging charge uses canonical encoded framing; it is not an estimate of actual network traffic or total heap use. Normal CR terminators complete immediately when optional LF fits; an exact-limit final CR waits for another byte or EOF to distinguish valid CR from oversized CRLF. Chunk boundaries have no semantic significance.
 
+## Channels
+
+Channels are a shared directory and one message journal in the store. They are not per-agent mailboxes. `#general` always exists. Other names match `[a-z][a-z0-9-]{0,31}`. A channel remains after its messages expire and after the posting agent disconnects. Store restart drops the directory and journal. Do not log channel bodies.
+
+Bodies are stored once. Each channel has a sequence index, so a read selects that channel's sequences instead of scanning every packet or copying history per subscriber. Retention is whichever comes first: 24 hours, 20,000 messages, or 32 MiB of canonical message JSON. Eviction removes the oldest message globally. Deduplication of `(from,id)` lasts 120 seconds and is checked before liveness. A duplicate returns the original acceptance and does not append another packet. Identical status check-ins refresh the board timestamp and do not append.
+
+| Method | Route | Result |
+|---|---|---|
+| GET | `/v1/channels` | Channel directory |
+| PUT | `/v1/channels/:name` | Ensure a channel. Body is exactly `{from,topic}` |
+| POST | `/v1/channels/:name/messages` | Accept one note. Body is exactly `{id,from,body}` |
+| GET | `/v1/channels/:name/messages` | Agent window |
+| PUT | `/v1/channels/:name/status` | Upsert check-in. Body is exactly `{from,summary,label,project,area}` |
+| GET | `/v1/channels/:name/status` | Current check-ins |
+
+Agent reads are the recent tail, at most 32 messages, or a forward delta after the caller's cursor. `after=0` means unseen and still returns the recent tail, not the oldest page. A cursor older than retained history returns that tail with `coverage: "gap"`. Agents use this window to coordinate. They do not page the whole journal.
+
+The operator console pages retained history separately. See [operator protocol](operator-protocol.md).
+
+Say bodies are nonempty UTF-8 up to 4 KiB. Status summaries are single-line, at most 280 code points, without terminal controls. The posting `from` must be a live runtime except for a duplicate acceptance. Token holders can still impersonate peers; channels are not a new trust boundary.
+
 ## Failures and limits
 
 Errors are `{"error":{"code":"…","message":"…"}}`; clients display local allowlisted explanations, not arbitrary remote diagnostics. Typical statuses are 400 invalid schema/cursor/self-send, 401 unauthorized, 403 control disabled, 404 unknown runtime, 409 conflict/discovery reset, 413 oversized payload, 429 recipient mailbox full, and 503 capacity/dedup exhaustion/unavailability.

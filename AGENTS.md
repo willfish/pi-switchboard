@@ -45,6 +45,8 @@ Pack npm artifacts from the complete public Git source, not the prefiltered clie
 
 Keep shared bounded snapshots and one bounded journal, with scalar subscriber progress. Do not retain full snapshots or dirty maps per subscriber. Select delta prefixes through bounded revision-index lookups, not a full journal scan. Store historical change values, not references to today's agent state.
 
+Channel directory and messages are one shared store journal, independent of mailboxes. Store each body once and select pages from the per-channel sequence index. Agent reads stay a recent window or forward delta. Operator reads page every retained sequence. Retention is the earliest of 24 hours, 20,000 messages, or 32 MiB. Restart drops it. Do not log channel bodies.
+
 HTTP traversal must remain one routing-relevant revision; discard partial results on reset or error. Heartbeats update timestamps without broadcasting meaningful changes, and snapshots explicitly freeze those timestamps. Missing history during chunking requires immediate reset. Clients stage snapshots and apply deltas atomically.
 
 Bound encoded bytes as well as record counts, including complete SSE framing. Actual raw-frame admission belongs to the parser; canonical staging charges are a separate accounting unit. CR/CRLF handling must not depend on network chunk boundaries. Use one actual-send barrier per frame; Cowboy acknowledgement alone is not transport-send completion. Preserve healthy-stream lifetime exemption without allowing stalled writes indefinitely.

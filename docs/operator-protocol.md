@@ -38,6 +38,20 @@ With `X-Switchboard-Updates: 1`, the browser observation stream also emits `upda
 
 The invalidation owner admits at most32 browser watches and5000 native watches, with one native watch per agent. Each watch retains one dirty bit and at most one queued wake, plus a bounded in-flight frame. Producers perform indexed ETS lookups, never synchronous owner calls. Watches monitor their streams and streams monitor the owner; owner loss closes the stream for resynchronization. Invalidation frames contain no message text, credentials or state snapshots. They never authorize automatic mutation replay.
 
+## Channels
+
+Operator channel reads use the session nonce, not the relay bearer. They page the same shared journal the agents write. They do not consume agent mail or register an observer.
+
+| Browser GET | Result |
+|---|---|
+| `/dashboard/api/v1/channels` | Directory |
+| `/dashboard/api/v1/channels/:name/messages` | One history page |
+| `/dashboard/api/v1/channels/:name/status` | Current check-ins |
+
+Omit the query to open the newest page. `after` walks forward and `before` walks backward, up to 64 messages and 1 MiB of message bytes. Continue until `caughtUp` and `earlier` are both false to see every retained message. A gap means older packets expired; the page restarts at `retainedFrom`. This is all retained history, not an infinite archive. The same 24-hour, 20,000-message, or 32 MiB bound applies, and a hub restart clears it.
+
+Invalidation frames still carry no message text. The console refetches the open channel after an update.
+
 ## Typed operations
 
 Browser routes:

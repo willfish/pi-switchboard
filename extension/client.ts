@@ -4,6 +4,7 @@ import { isRequests, isOperationAck, isDescriptor, type OperationDescriptor, typ
 import { isUuid, decodeWireJson, isDiscoveryPage, sameSnapshot, MAX_DISCOVERY_BYTES,
   MAX_STAGE_BYTES, MAX_AGENTS, DISCOVERY_LIFETIME_MS, exactKeys, isUnsignedInteger,
   isMessageFields, MAX_ENVELOPE_BYTES, type DiscoveryPage } from "./protocol.ts";
+import { CHANNEL_NAME, isChannelList, isChannelPage, isStatusBoard, type ChannelPage, type ChannelStatus, type ChannelSummary } from "./channels.ts";
 
 export type FetchLike = (
   input: string,
@@ -51,6 +52,12 @@ export type HubClient = {
     kind: SendKind;
     body: string;
   }, signal?: AbortSignal): Promise<SendOutcome>;
+  listChannels?(signal?: AbortSignal): Promise<{ status: "ok"; epoch: string; channels: ChannelSummary[] } | SendOutcome>;
+  ensureChannel?(name: string, from: string, topic: string, signal?: AbortSignal): Promise<SendOutcome | { status: "ok" }>;
+  readChannel?(name: string, after: string, signal?: AbortSignal): Promise<{ status: "ok"; page: ChannelPage } | SendOutcome>;
+  postChannel?(name: string, msg: { id: string; from: string; body: string }, signal?: AbortSignal): Promise<SendOutcome>;
+  putChannelStatus?(name: string, status: { from: string; summary: string; label: string; project: string; area: string }, signal?: AbortSignal): Promise<{ status: "ok"; state: string; sequence: string | null } | SendOutcome>;
+  channelStatus?(name: string, signal?: AbortSignal): Promise<{ status: "ok"; statuses: ChannelStatus[] } | SendOutcome>;
 };
 
 export function createHubClient(opts: {
@@ -367,7 +374,65 @@ export function createHubClient(opts: {
         reason: errorMessage(result.json, `http ${result.status}`),
       };
     },
+
+    async listChannels(signal) {
+      const result = await request("GET", "/v1/channels", undefined, signal, 262144);
+      if (result.kind === "http" && result.status === 200 && isChannelList(result.json)) return { status: "ok" as const, epoch: result.json.epoch, channels: result.json.channels };
+      return channelFailure(result);
+    },
+    async ensureChannel(name, from, topic, signal) {
+      if (!CHANNEL_NAME.test(name) || !isUuid(from)) return { status: "not_sent", reason: "invalid channel" };
+      const result = await request("PUT", `/v1/channels/${name}`, { from, topic }, signal, 4096);
+      if (result.kind === "http" && result.status === 200 && exactKeys(result.json, ["channel", "topic", "state"]) && result.json.channel === name && result.json.state === "ready") return { status: "ok" as const };
+      return channelFailure(result);
+    },
+    async readChannel(name, after, signal) {
+      if (!CHANNEL_NAME.test(name) || !/^(0|[1-9][0-9]{0,19})$/.test(after)) return { status: "not_sent", reason: "invalid channel cursor" };
+      const path = after === "0" ? `/v1/channels/${name}/messages` : `/v1/channels/${name}/messages?after=${after}&limit=24`;
+      const result = await request("GET", path, undefined, signal, 300000);
+      if (result.kind === "http" && result.status === 200 && isChannelPage(result.json, name)) return { status: "ok" as const, page: result.json };
+      return channelFailure(result);
+    },
+    async postChannel(name, msg, signal) {
+      if (!CHANNEL_NAME.test(name) || !isUuid(msg.id) || !isUuid(msg.from) || encoderBytes(msg.body) === 0 || encoderBytes(msg.body) > 4096) return { status: "not_sent", reason: "invalid channel message" };
+      const result = await request("POST", `/v1/channels/${name}/messages`, msg, signal, 4096);
+      if (result.kind === "unknown") return { status: "outcome_unknown", reason: "The channel post response was lost. Do not send it again until you have checked the channel." };
+      if (result.kind === "local") return { status: "not_sent", reason: result.reason };
+      if (result.status === 202 && exactKeys(result.json, ["id", "channel", "sequence", "state", "postedAt"])
+        && result.json.id === msg.id && result.json.channel === name && result.json.state === "accepted") {
+        return { status: "accepted", id: msg.id, to: name, receiving: true, expiresAt: 0 };
+      }
+      if (result.status === 401 || [400, 403, 404, 409, 413, 429, 503].includes(result.status)) return channelFailure(result);
+      return { status: "outcome_unknown", reason: "The channel post response was invalid. Check the channel before posting again." };
+    },
+    async putChannelStatus(name, status, signal) {
+      if (!CHANNEL_NAME.test(name) || !exactKeys(status, ["from", "summary", "label", "project", "area"])) return { status: "not_sent", reason: "invalid channel status" };
+      const result = await request("PUT", `/v1/channels/${name}/status`, status, signal, 4096);
+      if (result.kind === "http" && result.status === 200 && exactKeys(result.json, ["channel", "agentId", "state", "sequence"])
+        && result.json.channel === name && result.json.agentId === status.from && (result.json.state === "current" || result.json.state === "noted")
+        && (result.json.sequence === null || typeof result.json.sequence === "string")) {
+        return { status: "ok" as const, state: result.json.state, sequence: result.json.sequence };
+      }
+      return channelFailure(result);
+    },
+    async channelStatus(name, signal) {
+      if (!CHANNEL_NAME.test(name)) return { status: "not_sent", reason: "invalid channel" };
+      const result = await request("GET", `/v1/channels/${name}/status`, undefined, signal, 262144);
+      if (result.kind === "http" && result.status === 200 && isStatusBoard(result.json, name)) return { status: "ok" as const, statuses: result.json.statuses };
+      return channelFailure(result);
+    },
   };
+}
+
+function encoderBytes(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function channelFailure(result: { kind: string; status?: number; json?: unknown; reason?: string }): SendOutcome {
+  if (result.kind === "local") return { status: "not_sent", reason: result.reason ?? "invalid request" };
+  if (result.kind === "unknown") return { status: "outcome_unknown", reason: "The channel response was lost. Check the channel before posting again." };
+  if (result.status === 401) return { status: "rejected", reason: "unauthorized" };
+  return { status: "rejected", reason: errorMessage(result.json, `http ${result.status}`) };
 }
 
 function errorMessage(json: unknown, fallback: string): string {

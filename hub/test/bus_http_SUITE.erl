@@ -18,7 +18,8 @@
     control_rejected/1,
     duplicate_post/1,
     global_queue_budget/1,
-    store_restart_loses_state/1
+    store_restart_loses_state/1,
+    channel_roundtrip/1
 ]).
 
 -define(A, <<"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">>).
@@ -39,7 +40,8 @@ all() ->
         control_rejected,
         duplicate_post,
         global_queue_budget,
-        store_restart_loses_state
+        store_restart_loses_state,
+        channel_roundtrip
     ].
 
 init_per_suite(Config) ->
@@ -200,6 +202,29 @@ store_restart_loses_state(Config) ->
     Config1 = [{port, ranch:get_port(bus_http)} | Config],
     {200, Body} = get(Config1, "/v1/agents", auth()),
     {ok, #{<<"agents">> := []}} = bus_protocol:decode_json(Body).
+
+channel_roundtrip(Config) ->
+    {204, _} = put_agent(Config, ?A, false),
+    {200, Listed} = get(Config, "/v1/channels", auth()),
+    {ok, #{<<"channels">> := Channels}} = bus_protocol:decode_json(Listed),
+    true = lists:any(fun(#{<<"name">> := Name}) -> Name =:= <<"general">> end, Channels),
+    Body = bus_protocol:encode_map(#{<<"id">> => ?MID, <<"from">> => ?A, <<"body">> => <<"checking in">>}),
+    {202, Posted} = post(Config, "/v1/channels/general/messages", Body),
+    {ok, First} = bus_protocol:decode_json(Posted),
+    #{<<"state">> := <<"accepted">>, <<"sequence">> := <<"1">>} = First,
+    {202, Again} = post(Config, "/v1/channels/general/messages", Body),
+    {ok, First} = bus_protocol:decode_json(Again),
+    {200, Page} = get(Config, "/v1/channels/general/messages", auth()),
+    {ok, #{<<"window">> := <<"recent">>, <<"messages">> := [Message]}} = bus_protocol:decode_json(Page),
+    <<"checking in">> = maps:get(<<"body">>, Message),
+    Status = bus_protocol:encode_map(#{<<"from">> => ?A, <<"summary">> => <<"checking in">>,
+        <<"label">> => <<"ct-agent">>, <<"project">> => <<"suite">>, <<"area">> => <<"general">>}),
+    {200, _} = put(Config, "/v1/channels/general/status", Status),
+    {200, _} = put(Config, "/v1/channels/general/status", Status),
+    {200, After} = get(Config, "/v1/channels/general/messages?after=1", auth()),
+    {ok, #{<<"messages">> := Tail, <<"caughtUp">> := true}} = bus_protocol:decode_json(After),
+    true = length(Tail) >= 1,
+    {401, _} = get(Config, "/v1/channels", []).
 
 put_agent(Config, Id, Control) ->
     put(
