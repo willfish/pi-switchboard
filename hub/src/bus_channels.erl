@@ -22,6 +22,7 @@
     decode_ensure/1,
     decode_post/1,
     decode_operator_post/1,
+    decode_operator_create/1,
     decode_status/1,
     operator_id/0,
     parse_query/2
@@ -239,6 +240,17 @@ decode_operator_post(Map) when is_map(Map) ->
         Error -> Error
     end;
 decode_operator_post(_) -> {error, invalid_schema}.
+
+decode_operator_create(Map) when is_map(Map) ->
+    case extra(Map, [<<"name">>, <<"topic">>]) of
+        ok ->
+            case {decode_name(maps:get(<<"name">>, Map, undefined)), topic_field(Map)} of
+                {{ok, Name}, {ok, Topic}} -> {ok, Name, Topic};
+                _ -> {error, invalid_schema}
+            end;
+        Error -> Error
+    end;
+decode_operator_create(_) -> {error, invalid_schema}.
 
 decode_status(Map) when is_map(Map) ->
     case extra(Map, [<<"from">>, <<"summary">>, <<"label">>, <<"project">>, <<"area">>]) of

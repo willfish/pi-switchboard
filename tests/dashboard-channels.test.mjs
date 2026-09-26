@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { isMessagePage, mergeHistory, channelMessagesPath, speaker, OPERATOR_ID, newChannelMessageId } from '../hub/priv/dashboard/channels.js';
+import { isMessagePage, mergeHistory, channelMessagesPath, speaker, OPERATOR_ID, newChannelMessageId, channelSlug, orderChannels } from '../hub/priv/dashboard/channels.js';
 
 test('operator posts are labeled without impersonating an agent', () => {
   assert.equal(speaker({ from: OPERATOR_ID }), 'Operator');
@@ -14,6 +14,13 @@ test('channel composer can mint an id without crypto.randomUUID', () => {
   assert.notEqual(uuid, newChannelMessageId());
   const source = readFileSync(new URL('../hub/priv/dashboard/channels.js', import.meta.url), 'utf8');
   assert.equal(source.includes('crypto.randomUUID('), false);
+});
+
+test('channel list keeps general first and slugs a new name', () => {
+  assert.equal(channelSlug('Project Updates'), 'project-updates');
+  assert.equal(channelSlug('***'), '');
+  assert.deepEqual(orderChannels([{ name: 'zeta' }, { name: 'general' }, { name: 'alpha' }]).map(c => c.name),
+    ['general', 'alpha', 'zeta']);
 });
 
 test('operator history can be walked without duplicating packets', () => {

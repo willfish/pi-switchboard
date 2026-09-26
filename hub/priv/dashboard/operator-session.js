@@ -539,6 +539,14 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     if (value.id !== id || value.channel !== channel || value.state !== 'accepted' || typeof value.sequence !== 'string') fail();
     return value;
   }
+  function channelCreate(name, topic) {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(name) || typeof topic !== 'string' || topic.length > 200) fail();
+    return mutateLike('/dashboard/api/v1/channels', { name, topic }, bytes => {
+      const value = decodeExactJson(bytes);
+      if (!value || value.channel !== name || value.state !== 'ready' || typeof value.topic !== 'string') fail();
+      return value;
+    });
+  }
   function channelPost(channel, id, body) {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(channel) || !operationId(id) || typeof body !== 'string' || !body.trim()) fail();
     return mutateLike(`/dashboard/api/v1/channels/${channel}/messages`, { id, body }, bytes => decodeChannelPost(bytes, id, channel));
@@ -566,5 +574,5 @@ export function createOperatorSession({ fetch: fetcher = globalThis.fetch, now =
     } finally { mutations.delete(request); request.abort(); }
   }
 
-  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, channelRead, channelPost, disconnect };
+  return { connect, presence, events, searchEvents, work, fleet, createOperation, operationStatus, cancelOperation, operations, observe, channelRead, channelPost, channelCreate, disconnect };
 }

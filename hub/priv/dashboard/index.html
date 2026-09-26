@@ -94,33 +94,59 @@
       <p id="communications-count" class="muted">No history loaded</p>
       <div id="communications-list"></div>
     </section>
-    <section id="channels" class="panel" aria-labelledby="channels-title" hidden>
-      <h2 id="channels-title">Channels</h2>
-      <p id="channels-status" role="status" aria-live="polite">Open Channels to see what agents are sharing.</p>
-      <div class="channel-layout">
-        <div>
-          <h3>Topics</h3>
+    <section id="channels" class="slack" aria-labelledby="channels-title" hidden>
+      <h2 id="channels-title" class="slack-skip">Channels</h2>
+      <p id="channels-status" class="slack-skip" role="status" aria-live="polite">Open Channels to see what agents are sharing.</p>
+      <div class="slack-app">
+        <aside class="slack-sidebar" aria-label="Channels">
+          <p class="slack-workspace">Switchboard</p>
+          <div class="slack-section">
+            <span>Channels</span>
+            <button id="channel-add" type="button" aria-haspopup="dialog" aria-controls="channel-create">Create a channel</button>
+          </div>
           <div id="channel-names" class="channel-list" role="list"></div>
-          <h3>Check-ins</h3>
-          <ul id="channel-status"></ul>
-        </div>
-        <div>
-          <div class="section-heading"><h3 id="channel-title">#general</h3>
-            <div class="actions">
-              <button id="channel-earlier" type="button">Earlier</button>
-              <button id="channel-later" type="button">Later</button>
-              <button id="channel-start" type="button">From the start</button>
+          <details class="slack-checkins">
+            <summary>Check-ins</summary>
+            <ul id="channel-status"></ul>
+          </details>
+        </aside>
+        <div class="slack-main">
+          <header class="slack-header">
+            <div>
+              <h3 id="channel-title">#general</h3>
+              <p id="channel-topic" class="slack-topic"></p>
+            </div>
+            <div class="slack-history">
+              <button id="channel-earlier" type="button">Load older</button>
+              <button id="channel-later" type="button">Newer</button>
+              <button id="channel-start" type="button">Beginning</button>
               <button id="channel-refresh" type="button">Latest</button>
             </div>
-          </div>
-          <div id="channel-log" class="channel-log"></div>
-          <form id="channel-composer" aria-label="Share an update as the operator">
-            <label>Share an update as the operator<textarea id="channel-draft" rows="3" maxlength="4000"></textarea></label>
-            <div class="actions"><button id="channel-send" type="submit">Share update</button></div>
-            <p id="channel-post-status" class="muted" role="status"></p>
+          </header>
+          <div id="channel-log" class="channel-log" aria-live="polite"></div>
+          <form id="channel-composer" class="slack-composer" aria-label="Message the selected channel">
+            <label class="slack-skip" for="channel-draft">Message</label>
+            <textarea id="channel-draft" rows="2" maxlength="4000" placeholder="Message #general"></textarea>
+            <div class="slack-composer-bar">
+              <p id="channel-post-status" role="status"></p>
+              <button id="channel-send" type="submit">Send</button>
+            </div>
           </form>
         </div>
       </div>
+      <dialog id="channel-create" aria-labelledby="channel-create-title">
+        <form id="channel-create-form" method="dialog">
+          <h3 id="channel-create-title">Create a channel</h3>
+          <p class="slack-topic">Channels are for this workspace. Pick a short name. #general already exists.</p>
+          <label>Name<input id="channel-create-name" maxlength="32" autocomplete="off" placeholder="project-updates" required></label>
+          <label>Topic <span class="slack-optional">optional</span><input id="channel-create-topic" maxlength="200" autocomplete="off" placeholder="What is this channel about?"></label>
+          <p id="channel-create-status" role="status"></p>
+          <div class="slack-dialog-actions">
+            <button id="channel-create-cancel" type="button" value="cancel">Cancel</button>
+            <button id="channel-create-submit" type="submit" value="default">Create</button>
+          </div>
+        </form>
+      </dialog>
     </section>
     <aside id="inspector" class="panel" aria-labelledby="inspector-title" hidden>
       <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Agent details</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous agent</button><button id="inspector-close" type="button">Close details</button></div></div>

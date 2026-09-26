@@ -31,7 +31,8 @@ http_test_() ->
         fun no_mailbox_interference/0,
         fun selected_runtime_work_read/0,
         fun fleet_work_snapshot_read/0,
-        fun operator_channel_post_roundtrip/0
+        fun operator_channel_post_roundtrip/0,
+        fun operator_can_create_a_channel/0
     ]}}}.
 
 setup() ->
@@ -146,6 +147,7 @@ proto_opts() ->
         {"/dashboard/api/v1/events", bus_operator_h, events},
         {"/dashboard/api/v1/work", bus_operator_h, work_fleet},
         {"/dashboard/api/v1/work/:agent_id", bus_operator_h, work},
+        {"/dashboard/api/v1/channels", bus_operator_h, channels},
         {"/dashboard/api/v1/channels/:name/messages", bus_operator_h, channel_messages},
         {"/v1/agents", bus_http_h, list},
         {"/v1/agents/:agent_id", bus_http_h, agent},
@@ -170,6 +172,19 @@ disabled_mode() ->
     application:set_env(pi_agent_bus, operator_access, loopback),
     ?assertEqual(<<"disabled">>, error_code(Body)),
     security(H).
+
+operator_can_create_a_channel() ->
+    {200, _, Bootstrap} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),
+    Hex = maps:get(<<"session">>, json_map(Bootstrap)),
+    Body = bus_protocol:encode_map(#{<<"name">> => <<"project-updates">>, <<"topic">> => <<"What we are shipping">>}),
+    {200, _, Created} = post("/dashboard/api/v1/channels", json() ++ origin_h() ++ session_h(Hex), Body),
+    {ok, #{<<"channel">> := <<"project-updates">>, <<"state">> := <<"ready">>,
+        <<"topic">> := <<"What we are shipping">>}} = bus_protocol:decode_json(Created),
+    {200, _, Listed} = get("/dashboard/api/v1/channels", session_h(Hex) ++ origin_h()),
+    {ok, #{<<"channels">> := Channels}} = bus_protocol:decode_json(Listed),
+    true = lists:any(fun(#{<<"name">> := Name}) -> Name =:= <<"project-updates">> end, Channels),
+    {400, _, _} = post("/dashboard/api/v1/channels", json() ++ origin_h() ++ session_h(Hex),
+        bus_protocol:encode_map(#{<<"name">> => <<"Bad Name">>, <<"topic">> => <<>>})).
 
 operator_channel_post_roundtrip() ->
     {200, _, Bootstrap} = post("/dashboard/api/v1/session", json() ++ origin_h(), <<"{}">>),

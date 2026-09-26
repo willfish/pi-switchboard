@@ -45,6 +45,26 @@ export function speaker(message) {
   return message?.from === OPERATOR_ID ? 'Operator' : message?.from ?? '';
 }
 
+export function channelSlug(raw) {
+  const slug = String(raw ?? '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  return NAME.test(slug) ? slug : '';
+}
+
+export function orderChannels(channels) {
+  return [...channels].sort((a, b) => {
+    if (a.name === b.name) return 0;
+    if (a.name === 'general') return -1;
+    if (b.name === 'general') return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export function messageTime(seconds) {
+  const date = new Date(Number(seconds) * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 /** Works on the plain HTTP console, where the secure-context UUID helper is absent. */
 export function newChannelMessageId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -78,11 +98,17 @@ export function mountChannels(doc, session) {
     if (!isChannelList(list)) throw new Error('schema');
     const names = byId('channel-names');
     names.replaceChildren();
-    for (const channel of list.channels) {
+    for (const channel of orderChannels(list.channels)) {
       const button = node('button', `#${channel.name}`);
       button.type = 'button';
+      button.setAttribute('role', 'listitem');
+      button.dataset.topic = channel.topic || '';
       button.setAttribute('aria-pressed', String(channel.name === selected));
-      button.addEventListener('click', () => { selected = channel.name; void loadPage(); });
+      button.addEventListener('click', () => {
+        selected = channel.name;
+        for (const item of names.children) item.setAttribute('aria-pressed', String(item === button));
+        history = []; page = null; void loadPage();
+      });
       names.append(button);
     }
     if (!list.channels.some(channel => channel.name === selected)) selected = 'general';
@@ -108,21 +134,36 @@ export function mountChannels(doc, session) {
     if (!board.statuses.length) list.append(node('li', 'No check-ins yet.'));
   }
   function render() {
+    const topic = byId('channel-topic');
     byId('channel-title').textContent = `#${selected}`;
-    const note = page?.coverage === 'gap'
-      ? 'Some earlier messages expired. This is the retained history.'
-      : page?.coverage === 'empty' ? 'No messages retained in this channel.' : '';
-    status(`${history.length} messages shown. ${note} History lasts up to 24 hours, until it fills up, or until the server restarts.`.trim());
+    byId('channel-draft').placeholder = `Message #${selected}`;
+    const chosen = [...byId('channel-names').children].find(button => button.textContent === `#${selected}`);
+    if (topic) topic.textContent = chosen?.dataset.topic || (page?.coverage === 'empty' ? 'No messages yet.' : '');
+    const note = page?.coverage === 'gap' ? 'Some earlier messages expired.' : '';
+    status(note || `${history.length} messages in #${selected}`);
     byId('channel-earlier').disabled = !page?.earlier;
     byId('channel-later').disabled = !page || page.caughtUp;
     const log = byId('channel-log');
     log.replaceChildren(...history.map(message => {
+      const who = speaker(message);
       const item = node('article', '');
-      item.append(node('p', `${message.kind === 'status' ? 'Status' : 'Note'} · ${speaker(message)} · ${message.postedAt}`),
-        node('p', message.body));
-      item.lastChild.className = 'channel-note';
+      item.className = 'slack-message';
+      item.dataset.kind = who === 'Operator' ? 'operator' : 'agent';
+      const avatar = node('span', who.slice(0, 1).toUpperCase());
+      avatar.className = 'slack-avatar';
+      avatar.setAttribute('aria-hidden', 'true');
+      const body = node('div', '');
+      const meta = node('p', '');
+      meta.className = 'slack-meta';
+      meta.append(node('strong', who), node('span', messageTime(message.postedAt)));
+      meta.lastChild.className = 'slack-time';
+      const text = node('p', message.body);
+      text.className = 'channel-note';
+      body.append(meta, text);
+      item.append(avatar, body);
       return item;
     }));
+    log.scrollTop = log.scrollHeight;
   }
   function reset() {
     generation++;
@@ -157,6 +198,23 @@ export function mountChannels(doc, session) {
     void loadPage({ after: '0' }, 'replace').catch(() => status("Couldn't load history from the start."));
   });
   byId('channel-refresh')?.addEventListener('click', () => { void reload(); });
+  const dialog = byId('channel-create');
+  byId('channel-add')?.addEventListener('click', () => { byId('channel-create-status').textContent = ''; dialog?.showModal(); byId('channel-create-name')?.focus(); });
+  byId('channel-create-cancel')?.addEventListener('click', () => dialog?.close());
+  byId('channel-create-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const name = channelSlug(byId('channel-create-name').value);
+    const topicText = byId('channel-create-topic').value.trim();
+    const note = byId('channel-create-status');
+    if (!name) { note.textContent = 'Use a short name: letters, numbers, and hyphens.'; return; }
+    if (!session.channelCreate) { note.textContent = 'This server cannot create channels yet.'; return; }
+    note.textContent = 'Creating…';
+    void session.channelCreate(name, topicText).then(async () => {
+      selected = name; history = []; page = null; dialog?.close();
+      byId('channel-create-name').value = ''; byId('channel-create-topic').value = '';
+      await reload();
+    }, () => { note.textContent = "Couldn't create that channel."; });
+  });
   byId('channel-composer')?.addEventListener('submit', event => {
     event.preventDefault();
     const draft = byId('channel-draft');
