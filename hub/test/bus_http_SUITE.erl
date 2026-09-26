@@ -222,8 +222,10 @@ channel_roundtrip(Config) ->
     {200, _} = put(Config, "/v1/channels/general/status", Status),
     {200, _} = put(Config, "/v1/channels/general/status", Status),
     {200, After} = get(Config, "/v1/channels/general/messages?after=1", auth()),
-    {ok, #{<<"messages">> := Tail, <<"caughtUp">> := true}} = bus_protocol:decode_json(After),
-    true = length(Tail) >= 1,
+    {ok, #{<<"messages">> := [], <<"caughtUp">> := true}} = bus_protocol:decode_json(After),
+    {200, Board} = get(Config, "/v1/channels/general/status", auth()),
+    {ok, #{<<"statuses">> := [Row]}} = bus_protocol:decode_json(Board),
+    <<"checking in">> = maps:get(<<"summary">>, Row),
     {401, _} = get(Config, "/v1/channels", []).
 
 put_agent(Config, Id, Control) ->

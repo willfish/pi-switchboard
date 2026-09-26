@@ -43,7 +43,7 @@ body.channels-open main { max-width: none; }
 body.channels-open #channels { min-height: calc(100vh - 150px); }
 #channels.slack { background: var(--bg); color: var(--ink); border: 0; padding: 0; overflow: hidden; min-height: 72vh; }
 #channels .slack-skip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-#channels .slack-app { display: grid; grid-template-columns: 260px 1fr; min-height: 72vh; }
+#channels .slack-app { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: calc(100vh - 150px); min-height: 520px; }
 #channels .slack-sidebar { background: #3f0e40; color: #fff; padding: 16px 10px; display: flex; flex-direction: column; gap: 8px; }
 #channels .slack-workspace { margin: 4px 8px 12px; font-weight: 800; font-size: 1.05rem; letter-spacing: -.02em; }
 #channels .slack-section { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; font-size: .78rem; font-weight: 700; color: #ffffffcc; white-space: nowrap; }
@@ -56,7 +56,7 @@ body.channels-open #channels { min-height: calc(100vh - 150px); }
 #channels .slack-checkins { margin-top: auto; color: #ffffffcc; font-size: .8rem; }
 #channels .slack-checkins summary { cursor: pointer; padding: 8px; }
 #channels .slack-checkins ul { margin: 0; padding: 0 8px 8px 22px; }
-#channels .slack-main { display: flex; flex-direction: column; min-width: 0; background: #fff; color: #1d1c1d; }
+#channels .slack-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; color: #1d1c1d; }
 #channels .slack-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 20px; border-bottom: 1px solid #e8e8e8; background: #fff; }
 #channels .slack-header h3 { margin: 0; font-size: 1.15rem; font-weight: 900; letter-spacing: -.02em; }
 #channels .slack-topic, #channels #channel-post-status, #channels #channel-create-status { margin: 2px 0 0; color: #616061; font-size: .8rem; font-weight: 450; }
@@ -68,7 +68,9 @@ body.channels-open #channels { min-height: calc(100vh - 150px); }
 #channels .slack-empty h3 { margin: 0 0 8px; font-size: 2rem; font-weight: 900; letter-spacing: -.03em; }
 #channels .slack-empty p { margin: 0; max-width: 42rem; color: #1d1c1d; line-height: 1.45; overflow-wrap: anywhere; }
 #channels .slack-day { align-self: center; margin: 14px 0 6px; padding: 4px 12px; border: 1px solid #ddd; border-radius: 999px; background: #fff; font-size: .75rem; font-weight: 750; }
-#channels .channel-log { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 42vh; max-height: none; overflow: auto; padding: 8px 16px; background: #fff; }
+#channels .channel-log { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow: auto; padding: 8px 16px; background: #fff; }
+#channels .slack-system { margin: 8px 12px; color: #616061; font-size: .85rem; }
+#channels .slack-system .slack-time { margin-left: 8px; }
 #channels .slack-message { display: grid; grid-template-columns: 36px 1fr; gap: 10px; padding: 6px 8px; border-radius: 8px; }
 #channels .slack-message:hover { background: #f8f8f8; }
 #channels .slack-avatar { width: 36px; height: 36px; border-radius: 6px; display: grid; place-items: center; color: #fff; font-weight: 750; background: #1164a3; }
@@ -92,7 +94,7 @@ body.channels-open #channels { min-height: calc(100vh - 150px); }
 #channels .slack-optional { font-weight: 450; color: #616061; }
 #channels .slack-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 #channels #channel-create-submit { background: #007a5a; color: #fff; border-color: #007a5a; }
-@media (max-width: 800px) { #channels .slack-app { grid-template-columns: 1fr; } #channels .slack-sidebar { min-height: auto; } }
+@media (max-width: 560px) { #channels .slack-app { grid-template-columns: 1fr; height: auto; } #channels .slack-sidebar { min-height: auto; } }
 .agent-toolbar { display: flex; align-items: end; gap: 16px; margin-top: 14px; }
 .agent-toolbar .search { flex: 1; }
 .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 12px 0; }

@@ -32,8 +32,9 @@ export function areaChannel(cwd: string): string {
 export function statusSummary(input: {
   label: string; busy: boolean; objective?: string | null; step?: string | null; project?: string | null;
 }): string {
-  const text = [input.busy ? "working" : "idle", input.project, input.objective, input.step, input.label]
-    .filter((part): part is string => typeof part === "string" && part.length > 0)
+  const project = typeof input.project === "string" ? input.project.trim() : "";
+  const text = [input.busy ? "working" : "idle", project]
+    .filter((part): part is string => part.length > 0)
     .join(" · ")
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
     .replace(/\s+/g, " ")

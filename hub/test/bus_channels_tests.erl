@@ -50,14 +50,16 @@ channel_index_does_not_copy_other_channel_bodies_test() ->
 identical_status_does_not_append_test() ->
     S0 = bus_channels:new(1_000),
     Status = status(<<"planning the import">>),
-    {ok, S1, Noted} = bus_channels:put_status(S0, <<"general">>, Status, 1_000, 1_000),
-    ?assertEqual(<<"noted">>, maps:get(<<"state">>, Noted)),
-    {ok, S2, Current} = bus_channels:put_status(S1, <<"general">>, Status, 1_010, 1_010),
+    {ok, S1, Current} = bus_channels:put_status(S0, <<"general">>, Status, 1_000, 1_000),
     ?assertEqual(<<"current">>, maps:get(<<"state">>, Current)),
     ?assertEqual(null, maps:get(<<"sequence">>, Current)),
-    ?assertEqual(1, maps:get(retained, maps:get(<<"general">>, maps:get(channels, S2)))),
+    {ok, S2, Again} = bus_channels:put_status(S1, <<"general">>, Status, 1_010, 1_010),
+    ?assertEqual(<<"current">>, maps:get(<<"state">>, Again)),
+    ?assertEqual(0, maps:get(retained, maps:get(<<"general">>, maps:get(channels, S2)))),
     {ok, S3, _} = bus_channels:put_status(S2, <<"general">>, status(<<"checking the catalogue">>), 1_020, 1_020),
-    ?assertEqual(2, maps:get(retained, maps:get(<<"general">>, maps:get(channels, S3)))).
+    ?assertEqual(0, maps:get(retained, maps:get(<<"general">>, maps:get(channels, S3)))),
+    {ok, Board} = bus_channels:statuses(S3, <<"general">>),
+    ?assertEqual([<<"checking the catalogue">>], [maps:get(<<"summary">>, Row) || Row <- maps:get(<<"statuses">>, Board)]).
 
 duplicate_post_keeps_one_packet_test() ->
     S0 = bus_channels:new(1_000),
@@ -72,8 +74,8 @@ stale_status_expires_so_new_checkins_fit_test() ->
     S2 = bus_channels:expire(S1, 1_000, 1_000 + 86400),
     {ok, Board} = bus_channels:statuses(S2, <<"general">>),
     ?assertEqual([], maps:get(<<"statuses">>, Board)),
-    {ok, _, Noted} = bus_channels:put_status(S2, <<"general">>, status(<<"new check-in">>), 90_000, 90_000),
-    ?assertEqual(<<"noted">>, maps:get(<<"state">>, Noted)).
+    {ok, _, Current} = bus_channels:put_status(S2, <<"general">>, status(<<"new check-in">>), 90_000, 90_000),
+    ?assertEqual(<<"current">>, maps:get(<<"state">>, Current)).
 
 retention_drops_oldest_without_removing_the_channel_test() ->
     S0 = bus_channels:new(1_000),

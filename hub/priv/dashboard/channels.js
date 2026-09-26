@@ -43,7 +43,10 @@ export function isStatusBoard(value, name) {
 
 export function speaker(message, names = new Map()) {
   if (message?.from === OPERATOR_ID) return 'Operator';
-  return names.get(message?.from) || message?.from || '';
+  const label = names.get(message?.from);
+  if (typeof label === 'string' && label.length > 0 && label.length <= 32 && !/[:·]/.test(label)) return label;
+  const id = String(message?.from || '');
+  return id ? id.slice(0, 8) : '';
 }
 
 export function channelSlug(raw) {
@@ -63,7 +66,7 @@ export function orderChannels(channels) {
 export function messageTime(seconds) {
   const date = new Date(Number(seconds) * 1000);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
 export function dayLabel(seconds) {
@@ -179,6 +182,13 @@ export function mountChannels(doc, session) {
   }
   function messageRow(message) {
       const who = speaker(message, labels);
+      if (message.kind === 'status') {
+        const line = node('p', '');
+        line.className = 'slack-system';
+        line.append(node('span', `${who} checked in: ${message.body}`), node('span', messageTime(message.postedAt)));
+        line.lastChild.className = 'slack-time';
+        return line;
+      }
       const item = node('article', '');
       item.className = 'slack-message';
       item.dataset.kind = who === 'Operator' ? 'operator' : 'agent';

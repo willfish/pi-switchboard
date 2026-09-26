@@ -21,7 +21,7 @@ test("a lost or malformed channel post is not reported as a clean rejection", as
 
 test("status text is one bounded line", () => {
   const summary = statusSummary({ label: "agent", busy: true, objective: "ship channels", step: "verify", project: "switchboard" });
-  assert.match(summary, /^working · switchboard · ship channels · verify · agent$/);
+  assert.equal(summary, "working · switchboard");
   assert.equal(statusSummary({ label: "a\nb", busy: false }).includes("\n"), false);
   assert.ok([...statusSummary({ label: "x".repeat(500), busy: false })].length <= 280);
 });

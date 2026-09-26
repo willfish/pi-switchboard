@@ -51,7 +51,7 @@ new(Wall) when is_integer(Wall) ->
         bytes => 0,
         messages => #{},
         order => gb_trees:empty(),
-        channels => #{Name => meta(Name, <<"Fleet-wide status and coordination">>, Wall)},
+        channels => #{Name => meta(Name, <<"Short notes when work may collide">>, Wall)},
         index => #{Name => gb_trees:empty()},
         status => #{},
         dedup => #{}
@@ -135,7 +135,6 @@ put_status(State, Name, Status, _Mono, Wall) ->
             From = maps:get(<<"from">>, Status),
             Key = {Name, From},
             Board0 = maps:get(status, State1),
-            Previous = maps:get(Key, Board0, undefined),
             Current = #{
                 summary => maps:get(<<"summary">>, Status),
                 label => maps:get(<<"label">>, Status),
@@ -143,25 +142,11 @@ put_status(State, Name, Status, _Mono, Wall) ->
                 area => maps:get(<<"area">>, Status),
                 updated_at => Wall
             },
-            Same = case Previous of
-                undefined -> false;
-                Old -> maps:without([updated_at], Old) =:= maps:without([updated_at], Current)
-            end,
-            case Same of
-                true ->
-                    {ok, touch(State1#{status => Board0#{Key => Current}}, Name, Wall),
-                        receipt(Name, From, <<"current">>, null)};
-                false ->
-                    case room_for_status(Board0, Key) of
-                        {error, capacity} -> {error, capacity};
-                        {ok, Board1} ->
-                            case append(State1, Name, uuid(), From, <<"status">>, maps:get(summary, Current), Wall) of
-                                {error, Reason} -> {error, Reason};
-                                {ok, State2, Result} ->
-                                    {ok, State2#{status => Board1#{Key => Current}},
-                                        receipt(Name, From, <<"noted">>, maps:get(<<"sequence">>, Result))}
-                            end
-                    end
+            case room_for_status(Board0, Key) of
+                {error, capacity} -> {error, capacity};
+                {ok, Board1} ->
+                    {ok, touch(State1#{status => Board1#{Key => Current}}, Name, Wall),
+                        receipt(Name, From, <<"current">>, null)}
             end
     end.
 

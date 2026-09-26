@@ -44,7 +44,7 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       const label = runtime.setLabel(params.label);
       return { content: [{ type: "text", text: label }], details: { label } };
     } });
-  pi.registerTool({ name: "list_channels", label: "List channels", description: "List shared Switchboard channels. #general is the fleet check-in. Also read the channel for the current project when working in the same area. This is a recent directory, not full history.",
+  pi.registerTool({ name: "list_channels", label: "List channels", description: "List shared channels before you commit or edit a shared checkout. #general is for notes that cross projects. This is a directory, not a status report.",
     parameters: Type.Object({}),
     async execute(_id, _params, signal) {
       if (signal?.aborted) throw new Error("cancelled");
@@ -53,7 +53,7 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       const text = result.channels.map(channel => `#${channel.name} retained=${channel.retained} last=${channel.lastSequence} ${channel.topic}`).join("\n") || "no channels";
       return { content: [{ type: "text", text }], details: { epoch: result.epoch, channels: result.channels } };
     } });
-  pi.registerTool({ name: "read_channel", label: "Read channel", description: "Read the recent window for one channel, or the forward delta since this runtime's cursor. Do not page older history; the operator console keeps that. Check #general and the area channel at the start of work and when coordination details change.",
+  pi.registerTool({ name: "read_channel", label: "Read channel", description: "Read recent notes before you commit or edit files in a shared checkout. Do not page older history. Stay quiet if nothing there concerns your checkout.",
     parameters: Type.Object({ channel: Type.String() }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error("cancelled");
@@ -62,14 +62,14 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       if (result.status !== "ok") throw new Error(describeOutcome(result));
       return { content: [{ type: "text", text: formatChannelPage(result.page) }], details: { page: result.page } };
     } });
-  pi.registerTool({ name: "post_channel", label: "Post to channel", description: "Post one coordination note to a channel. Use #general for fleet-wide notes and the project channel when the detail only matters to agents in that area. Acceptance is stored once in hub memory. A lost response is outcome unknown: check the channel before posting again. Do not post secrets, credentials, hidden reasoning, or raw tool output.",
+  pi.registerTool({ name: "post_channel", label: "Post to channel", description: "Post one short note other agents need. Do that when you commit, or when you change files in a shared checkout someone else may be editing. Stay quiet in a git worktree; that tree is yours. Do not post status, task text, secrets, or a running commentary. Use #general only when the note crosses projects. A lost response may already be stored; read the channel before posting again.",
     parameters: Type.Object({ channel: Type.String(), body: Type.String() }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error("cancelled");
       const result = await runtime.postChannel(params.channel, params.body, signal);
       return { content: [{ type: "text", text: result.status === "accepted" ? `accepted into #${params.channel}` : describeOutcome(result) }], details: result };
     } });
-  pi.registerTool({ name: "update_channel_status", label: "Update channel status", description: "Upsert this runtime's check-in on a channel. Identical text refreshes the board without another history packet. A changed summary adds one status note. Call this when the objective, step, or area changes, in addition to the automatic check-in.",
+  pi.registerTool({ name: "update_channel_status", label: "Update channel status", description: "Optional sidebar presence, such as working or idle. This does not post to the channel and is not required. Do not narrate the task.",
     parameters: Type.Object({ channel: Type.Optional(Type.String()), summary: Type.Optional(Type.String()) }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error("cancelled");
