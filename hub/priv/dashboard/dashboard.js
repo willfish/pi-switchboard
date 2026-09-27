@@ -157,7 +157,11 @@ export function mountDashboard(doc, win) {
     return node;
   };
   const operator = createOperatorSession(), watchlist = new Set(), operationAttention = new Map();
+  const narrow = win.matchMedia?.('(max-width: 600px)');
+  const fitAttention = () => { byId('attention-details').open = !narrow.matches; };
+  if (narrow) { fitAttention(); narrow.addEventListener('change', fitAttention); }
   const lastEvents = new Map(); let observedEpoch = null, observedAgents = new Map();
+  let current, page = 0, controller, wasConnected = true, hostOptions = null;
   const consoleView = mountConsole(doc, operator, {
     onUpdate() { controller?.invalidate(); },
     onPush(value) { controller?.setPush(value); },
@@ -185,6 +189,7 @@ export function mountDashboard(doc, win) {
         row.dataset.tone = outcomeTone(op.state);
         row.textContent = `${plainLabel(op.kind)} · ${plainLabel(op.state)} · ${op.agentId}`;
       }
+      attentionCount();
     },
     isWatched: id => watchlist.has(id),
     resolveAgent: id => current?.snapshot?.agents.find(agent => agent.agentId === id),
@@ -195,10 +200,16 @@ export function mountDashboard(doc, win) {
     },
     toggleWatch(id) { if (watchlist.has(id)) watchlist.delete(id); else watchlist.add(id); renderRows(); },
   });
-  let current, page = 0, controller, wasConnected = true, hostOptions = null;
   const cards = new Map();
   let displayedSnapshot = null, shortIds = new Map(), workViews = new Map();
   const attentionRows = new Map();
+  function attentionCount() {
+    const count = byId('attention-list').children.length + byId('attention-operations').children.length;
+    byId('attention-count').textContent = count ? `${count} reported item${count === 1 ? '' : 's'}`
+      : !current?.connected ? 'Disconnected'
+        : current.workLoading || current.loading ? 'Checking reports…'
+          : current.workSnapshot ? 'No requests for help' : 'Reports unavailable';
+  }
   const filterIds = ['search', 'host', 'activity', 'receiving', 'control', 'sort', 'project', 'work-filter', 'model-filter', 'owner-filter', 'capability-filter'];
   const optionCache = new Map();
   const filters = () => Object.fromEntries(filterIds.map((id) => [id, byId(id).value]));
@@ -258,7 +269,10 @@ export function mountDashboard(doc, win) {
       card.inspect.setAttribute('aria-label', `Open details agent ${shortIds.get(a.agentId)}`);
       card.title.textContent = a.label;
       const reported = workViews.get(a.agentId)?.work;
-      card.objective.textContent = reported?.objective ? [reported.objective, reported.currentStep].filter(Boolean).join(": ") : "No task shared yet";
+      card.objective.textContent = reported?.objective
+        ? [...new Set([reported.objective, reported.currentStep].filter(Boolean))].filter(text => text !== a.label).join(': ')
+        : "No task shared yet";
+      card.objective.hidden = !card.objective.textContent;
       const state = agentState(a, reported);
       card.status.textContent = state.label; card.status.dataset.tone = state.tone; card.root.dataset.tone = state.tone;
       const last = lastEvents.get(a.agentId);
@@ -294,6 +308,7 @@ export function mountDashboard(doc, win) {
       if (workViews.get(agent.agentId)?.binding.sessionId !== agent.sessionId) workViews.delete(agent.agentId);
     }
     byId('attention-status').textContent = !state.connected ? "Disconnected. Task details cleared."
+      : !state.snapshot ? (state.loading ? 'Connecting to task reports…' : 'Task reports are unavailable. Refresh to check again.')
       : state.workLoading ? "Updating tasks. Showing the previous update for now." : state.workError
         || (state.workSnapshot ? '' : "Loading tasks…");
     byId('attention-status').dataset.tone = state.workError ? 'attention' : 'neutral';
@@ -318,11 +333,14 @@ export function mountDashboard(doc, win) {
     }
     byId('attention-empty').hidden = !state.workSnapshot || needs.length !== 0;
     byId('attention-empty').textContent = "No help requested. Agents without task updates may still need checking.";
+    attentionCount();
     if (displayedSnapshot !== state.snapshot) {
       displayedSnapshot = state.snapshot;
       shortIds = displayIds(state.snapshot?.agents ?? []);
     }
-    byId('refresh').disabled = !state.connected || state.loading;
+    // Keep the loading control focusable so completing a read never has to reclaim focus.
+    byId('refresh').disabled = !state.connected;
+    byId('refresh').setAttribute('aria-disabled', String(!state.connected || state.loading));
     byId('disconnect').hidden = !state.connected;
     byId('disconnect').disabled = !state.connected;
     byId('reconnect').hidden = state.connected;
@@ -338,7 +356,9 @@ export function mountDashboard(doc, win) {
       : state.error ? `${state.error} No current details. ${pause}`
       : ['paused', 'hidden', 'stopped'].includes(state.poll) ? pause : 'Connected';
     byId('status').dataset.tone = state.error ? 'danger' : 'neutral';
-    byId('freshness').textContent = `Last updated: ${state.lastSuccess === null ? 'none' : timestamp(state.lastSuccess)} · Server update: ${timestamp(state.snapshot?.capturedAt, true)}`;
+    byId('freshness').textContent = state.lastSuccess === null ? 'No agent snapshot yet'
+      : `Last successful check ${new Date(state.lastSuccess).toLocaleTimeString()}`;
+    byId('freshness').title = `Browser check: ${timestamp(state.lastSuccess)} · Server snapshot: ${timestamp(state.snapshot?.capturedAt, true)}`;
     const totals = state.snapshot ? counts(state.snapshot.agents) : null;
     for (const key of ['registered', 'busy', 'receiving', 'control']) byId(`${key}-count`).textContent = totals ? String(totals[key]) : '--';
     const selectedHost = byId('host').value;
@@ -380,7 +400,9 @@ export function mountDashboard(doc, win) {
     wasConnected = state.connected;
   }
   controller = createController({ operator, render, hidden: doc.hidden });
-  byId('refresh').addEventListener('click', () => { void controller.refresh(); });
+  byId('refresh').addEventListener('click', () => {
+    if (byId('refresh').getAttribute('aria-disabled') !== 'true') void controller.refresh();
+  });
   byId('disconnect').addEventListener('click', () => { controller.disconnect(); });
   byId('reconnect').addEventListener('click', () => { void controller.connect(); });
   byId('auto').addEventListener('change', () => controller.setAuto(byId('auto').checked));

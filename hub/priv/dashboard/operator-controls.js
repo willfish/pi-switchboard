@@ -3,8 +3,8 @@ import { isWorkSnapshot } from './operator-work.js';
 
 const labels = { notice: "Send a message", work: "Ask agent to work", guidance: "Guide current work", label: "Rename agent", interrupt: "Stop current work" };
 const explanations = {
-  notice: "Send a message. The agent receives it now. If it is working, the current run sees it and a follow-up starts after.",
-  work: "Ask the agent to do something. It may start now or wait until its current work finishes.",
+  notice: "Request delivery to this agent. A busy agent may be steered and receive a follow-up. Receipt does not confirm the model used your message.",
+  work: "Ask the agent to do something. It may start now or queue behind current work. Acceptance does not confirm work has started.",
   guidance: "Send advice while the agent is working. It may not use it straight away, and you can't take it back.",
   label: "Change the name shown for this agent.",
   interrupt: "Ask the agent to stop its current work. Changes already made won't be undone, and messages already sent can't be taken back.",
@@ -86,7 +86,7 @@ export function mountOperatorControls(doc, operator, onAttention = () => {}) {
     el('operation-confirm-target').hidden = !changed; el('operation-confirm-target').disabled = !view || busy;
     const command = kind === 'notice' ? '/bus operator notices on' : kind === 'label' || kind === 'interrupt' ? '/bus operator manage on' : '/bus control on';
     el('operation-text-label').textContent = kind === 'label' ? 'New name' : kind === 'interrupt' ? 'Reason for stopping (optional)' : 'Message';
-    el('operation-help').textContent = `${explanations[kind]}${view?.permissions.history ? ' Message text may be saved temporarily in history.' : ''}${available ? '' : ` To allow this action, run ${command} in the agent's terminal.`}`;
+    el('operation-help').textContent = `${explanations[kind]}${view?.permissions.history ? ' Message text may be saved temporarily in history.' : ''}${available ? '' : ` This action is currently unavailable. Permission can only be granted locally with ${command} in the agent's terminal; the client must also support the action and its required context.`}`;
     el('operation-status').dataset.tone = outcomeTone(outcomes.get(lastSubmitted)?.state);
     el('operation-target').textContent = view ? `Agent ${view.binding.agentId} · task ${view.work.workId ?? 'not provided'} · conversation ${view.binding.sessionId}${kind === 'interrupt' ? ` · current work ${view.binding.activeRunId ?? 'none'}` : ''}${changed ? " · DETAILS CHANGED: check the agent and task before sending." : ''}` : "Choose an available agent first.";
     el('operation-status').textContent = message;

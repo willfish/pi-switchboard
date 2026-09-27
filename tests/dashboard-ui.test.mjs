@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createController, counts, selectAgents, displayIds, mountDashboard, agentState } from '../hub/priv/dashboard/dashboard.js';
 import { DiscoveryError } from '../hub/priv/dashboard/protocol.js';
+import { mountConsole } from '../hub/priv/dashboard/console-view.js';
 
 const id = (n) => `${n.toString(16).padStart(8, '0')}-0000-0000-0000-000000000000`;
 const nonce = (n = 1) => n.toString(16).padStart(64, '0');
@@ -216,6 +217,7 @@ class Node {
   set textContent(text) { this._text = String(text); this.replaceChildren(); }
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
   get firstChild() { return this.children[0]; }
+  get lastChild() { return this.children.at(-1); }
   setAttribute(name, value) { this.attributes ??= new Map(); this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes?.get(name) ?? null; }
   append(...nodes) { for (const n of nodes) { n.remove(); n.parent = this; this.children.push(n); } }
@@ -263,6 +265,90 @@ function mockFetch(agents, { status = 200, session = nonce() } = {}) {
     return new Response(JSON.stringify(pageDoc(list)));
   };
 }
+
+test('channels are the default and wait for a connected snapshot; refresh does not reopen them', async () => {
+  const { doc, win, el } = dom(), original = globalThis.fetch;
+  const bootstrap = deferred(), channelReads = [];
+  globalThis.fetch = async (url) => {
+    if (url.endsWith('/session')) { await bootstrap.promise; return new Response(JSON.stringify({ session: nonce() })); }
+    if (url.endsWith('/disconnect')) return new Response(null, { status: 204 });
+    if (url.endsWith('/presence')) return new Response(JSON.stringify(pageDoc([agent(1)])));
+    if (url.includes('/channels')) {
+      channelReads.push(url);
+      const value = url.endsWith('/channels') ? { epoch: id(9000), channels: [
+        { name: 'general', topic: 'Synthetic coordination', retained: 0, lastSequence: '0', updatedAt: 1 },
+      ] } : url.endsWith('/status') ? { epoch: id(9000), channel: 'general', statuses: [] }
+        : { epoch: id(9000), channel: 'general', window: 'recent', fromSequence: '0', toSequence: '0',
+          retainedFrom: '0', retainedTo: '0', coverage: 'empty', caughtUp: true, earlier: false,
+          nextCursor: null, earlierCursor: null, messages: [] };
+      return new Response(JSON.stringify(value));
+    }
+    return new Response('{}', { status: 503 });
+  };
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle();
+    assert.equal(channelReads.length, 0, 'no channel request before connection');
+    assert.equal(el('view-channels').getAttribute('aria-pressed'), 'true');
+    assert.equal(el('channels').hidden, false);
+    assert.equal(el('runtimes').hidden, true);
+    bootstrap.resolve(); await settle(); await settle(); await settle();
+    assert.equal(channelReads.filter(path => path.endsWith('/channels')).length, 1);
+    assert.match(el('channel-title').textContent, /general/);
+    el('channel-history').open = true;
+    el('channel-history').fire('keydown', { key: 'Escape' });
+    assert.equal(el('channel-history').open, false);
+    assert.equal(doc.activeElement, el('channel-history-summary'));
+    await controller.refresh(); await settle();
+    assert.equal(channelReads.filter(path => path.endsWith('/channels')).length, 1);
+    el('view-fleet').fire('click');
+    assert.equal(el('runtimes').hidden, false);
+    assert.equal(el('channels').hidden, true);
+    el('disconnect').fire('click'); await settle();
+    el('reconnect').fire('click'); await settle(); await settle();
+    assert.equal(el('runtimes').hidden, false, 'reconnect preserves the chosen workspace view');
+    assert.equal(channelReads.filter(path => path.endsWith('/channels')).length, 1);
+  } finally { controller.disconnect(); globalThis.fetch = original; }
+});
+
+test('channel participant inspection preserves context, restores focus and revalidates runtime identity', async () => {
+  const { doc, el } = dom(), scrolls = [];
+  doc.defaultView = { scrollX: 0, scrollY: 360, scrollTo: (x, y) => scrolls.push([x, y]) };
+  let live = agent(1);
+  const operator = {
+    work: async () => { throw new DiscoveryError('not_found'); },
+    channelRead: async path => path.endsWith('/channels') ? { epoch: id(9000), channels: [
+      { name: 'general', topic: 'Synthetic coordination', retained: 1, lastSequence: '1', updatedAt: 1 },
+    ] } : path.endsWith('/status') ? { channel: 'general', statuses: [{ agentId: id(1), label: 'Builder', summary: 'Checking a contract' }] }
+      : { epoch: id(9000), channel: 'general', window: 'recent', fromSequence: '1', toSequence: '1', retainedFrom: '1',
+        retainedTo: '1', coverage: 'complete', caughtUp: true, earlier: false, nextCursor: null, earlierCursor: null,
+        messages: [{ channel: 'general', id: id(12), seq: '1', from: id(1), kind: 'say', body: 'Review the shared contract.', postedAt: 1 }] },
+  };
+  const consoleView = mountConsole(doc, operator, { resolveAgent: target => live?.agentId === target ? live : undefined });
+  try {
+    consoleView.setConnected(true); consoleView.enableObservation(true); await settle(); await settle();
+    const opener = descendants(el('channel-log'), 'BUTTON')[0];
+    assert.ok(opener, 'a known channel participant has an inspect action');
+    el('channel-draft').value = 'Keep my channel draft'; el('channel-draft').fire('input');
+    el('channel-log').scrollTop = 128;
+    opener.isConnected = true; opener.focus(); opener.fire('click'); await settle();
+    assert.equal(doc.body.classList.contains('inspecting'), true);
+    assert.equal(el('channels').hidden, false, 'inspection does not navigate away from channels');
+    assert.match(el('inspector-target').textContent, new RegExp(id(1)));
+    el('channel-log').scrollTop = 0;
+    el('inspector-close').fire('click');
+    assert.equal(doc.body.classList.contains('inspecting'), false);
+    assert.equal(doc.activeElement, opener);
+    assert.equal(el('channel-draft').value, 'Keep my channel draft');
+    assert.equal(el('channel-log').scrollTop, 128);
+    assert.deepEqual(scrolls.at(-1), [0, 360]);
+    opener.focus(); opener.fire('click'); await settle(); opener.isConnected = false;
+    el('inspector-close').fire('click');
+    assert.equal(doc.activeElement, el('view-channels'), 'removed opener returns to the originating view control');
+    live = null; opener.fire('click'); await settle();
+    assert.equal(el('inspector').hidden, true, 'a stale channel sender cannot retarget inspection');
+  } finally { consoleView.setConnected(false); }
+});
 
 test('compact defaults keep filters and management controls folded without removing them', async () => {
   assert.match(html, /<details id="more-filters">/);
@@ -349,6 +435,64 @@ test('mount auto-connects, disconnect stays down, reconnect, focus and late work
     win.fire('pagehide'); assert.equal(el('cards').children.length, 0); assert.equal(doc.activeElement, el('reconnect'));
     win.fire('pageshow', { persisted: true }); assert.equal(el('reconnect').hidden, false);
   } finally { controller.disconnect(); globalThis.fetch = originalFetch; }
+});
+
+test('global refresh retains initiating focus without stealing later focus on success or failure', async () => {
+  const { doc, win, el } = dom(), original = globalThis.fetch;
+  const initialFetch = mockFetch([agent(1)]);
+  let fetchRead = initialFetch;
+  globalThis.fetch = (...args) => fetchRead(...args);
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle(); controller.setAuto(false);
+    for (const status of [200, 503]) for (const moveFocus of [false, true]) {
+      const held = deferred(); let reads = 0;
+      fetchRead = async (url, options) => {
+        if (!String(url).includes('/presence')) return initialFetch(url, options);
+        reads++; await held.promise;
+        return status === 200 ? new Response(JSON.stringify(pageDoc([agent(1)]))) : new Response(null, { status });
+      };
+      el('refresh').focus(); el('refresh').fire('click'); await settle();
+      assert.equal(el('refresh').disabled, false, 'native disabling would blur the initiating button');
+      assert.equal(el('refresh').getAttribute('aria-disabled'), 'true');
+      el('refresh').fire('click'); await settle();
+      assert.equal(reads, 1, 'loading activation cannot start another read');
+      if (moveFocus) el('channel-draft').focus();
+      held.resolve(); await settle();
+      assert.equal(el('refresh').getAttribute('aria-disabled'), 'false');
+      assert.equal(doc.activeElement, el(moveFocus ? 'channel-draft' : 'refresh'));
+      if (status === 503) assert.match(el('status').textContent, /No current details/);
+    }
+    controller.disconnect();
+    assert.equal(el('refresh').disabled, true);
+    assert.equal(doc.activeElement, el('reconnect'));
+  } finally { controller.disconnect(); globalThis.fetch = original; }
+});
+
+test('empty activity read replaces not-loaded count, including failure and recovery', async () => {
+  const { win, doc, el } = dom(), original = globalThis.fetch;
+  const presenceFetch = mockFetch([agent(1)]); let fail = false;
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).includes('/api/v1/events')) return presenceFetch(url, options);
+    return fail ? new Response(null, { status: 503 }) : new Response(JSON.stringify({
+      epoch: id(99), fromSequence: '0', toSequence: '0', retainedFrom: '0',
+      coverage: 'empty', caughtUp: true, nextCursor: null, events: [],
+    }));
+  };
+  const controller = mountDashboard(doc, win);
+  try {
+    await settle();
+    assert.equal(el('communications-count').textContent, 'No history loaded');
+    el('view-communications').fire('click'); await settle();
+    assert.match(el('communications-status').textContent, /Up to date/);
+    assert.equal(el('communications-count').textContent, '0 of 0 events on this page');
+    fail = true; el('communications-more').fire('click'); await settle();
+    assert.match(el('communications-status').textContent, /Couldn't load/);
+    assert.equal(el('communications-count').textContent, 'No history loaded');
+    fail = false; el('communications-more').fire('click'); await settle();
+    assert.match(el('communications-status').textContent, /Up to date/);
+    assert.equal(el('communications-count').textContent, '0 of 0 events on this page');
+  } finally { controller.disconnect(); globalThis.fetch = original; }
 });
 
 test('console navigation loads independent communications and disconnect clears it', async () => {
@@ -444,6 +588,7 @@ test('fleet work, attention, permission-gated notice and changed-target confirma
     await settle(); await settle(); await settle();
     assert.match(el('cards').textContent, /Investigate a reported blocker/);
     assert.equal(el('attention-list').children.length, 1);
+    assert.equal(el('attention-count').textContent, '1 reported item');
     el('attention-list').children[0].fire('click'); await settle(); await settle();
     el('operation-text').value = 'A scoped operator notice'; el('operation-text').fire('input');
     assert.equal(el('operation-send').disabled, false);
@@ -531,6 +676,8 @@ test('controls and status colours retain accessible contrast in both themes', as
   assert.deepEqual(checked, new Set(['#ffffff', '#1a2430']));
   assert.match(css, /input, select, button[^}]+var\(--control-line\)/);
   assert.match(css, /@media \(min-width: 1100px\)/);
+  assert.match(css, /body\.inspecting #channels, body\.inspecting #runtimes, body\.inspecting #communications/);
+  assert.doesNotMatch(css, /textarea:focus[^}]*outline: none/);
   for (const tone of ['danger', 'attention', 'working', 'complete']) {
     let palettes = 0;
     const pattern = new RegExp(`--${tone}-ink: (#[a-f0-9]{6}); --${tone}-bg: (#[a-f0-9]{6});`, 'g');
@@ -559,6 +706,8 @@ test('failed snapshots are cleared; disabled operator API does not ask for a hub
     assert.equal(el('cards').children.length, 1);
     status = 409; await controller.refresh(); assert.equal(el('cards').children.length, 0); assert.match(el('status').textContent, /changed/);
     assert.equal(el('registered-count').textContent, '--'); assert.equal(el('status').textContent.includes('do not display'), false);
+    assert.match(el('attention-status').textContent, /unavailable/);
+    assert.doesNotMatch(el('attention-status').textContent, /Loading|Connecting/);
     controller.disconnect();
   } finally { globalThis.fetch = originalFetch; }
   const disabled = dom();

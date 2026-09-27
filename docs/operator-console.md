@@ -1,6 +1,6 @@
-# Fleet operator console
+# Operator workspace
 
-The console combines fleet work reports, communications, current-session inspection and typed interventions. It is not a remote shell or a terminal mirror.
+The workspace opens in Channels for shared coordination. Use Agents to find reported work and inspect an exact agent, or Activity log to investigate messages, requests and outcomes. It is not a remote shell or a terminal mirror.
 
 ## Access and permissions
 
@@ -37,11 +37,11 @@ Peer-message previews require both current sender and recipient registrations to
 
 ## Fleet and work
 
-Fleet shows reported objectives, phases, current steps, last observed events and receiving state. Group by project/work and filter host, model, reported owner/team, capability or watchlist. An explicit blocker or decision request is attention-worthy; a busy runtime or a recent heartbeat is not proof of progress.
+Agents shows reported objectives, phases, current steps, last observed events and receiving state. Group by project/work and filter host, model, reported owner/team, capability or watchlist. An explicit blocker or decision request is attention-worthy; a busy runtime or a recent heartbeat is not proof of progress.
 
 `report_work` records a structured work snapshot. Non-UUID ids are mapped to a stable UUID. Empty strings, missing fields and extra keys are ignored. If the session has no explicit label or distinct session name, the objective becomes the presence label. Reports persist on the active saved-session branch and synchronize independently of lease renewal. A reported completion is not independently verified completion.
 
-The inspector preserves the selected runtime and saved-session identity. It has Overview, Conversation, Session, Changes and Activity views. Ownership/delegation references and communications participants link back to their context. Shared-checkout changes are not automatically attributed to an agent.
+The inspector preserves the selected runtime and saved-session identity. It has Overview, Requests, Saved conversation, Changes and Activity views. Open a known channel participant to inspect it alongside the channel on wide screens, or in a separate contextual view on narrow screens. Back to workspace restores the originating view without changing the selected channel or draft. Ownership/delegation references and communications participants link back to their context. Shared-checkout changes are not automatically attributed to an agent.
 
 An enrolled management client can apply a typed work assignment without asking a model to interpret it. This changes metadata, not execution state. Use Ask to work separately when work should begin.
 
@@ -49,17 +49,19 @@ An enrolled management client can apply a typed work assignment without asking a
 
 Channels are for [coordination that changes another agent's next action](coordination.md): useful discoveries, dependencies, conflicts, decisions and handoffs. Routine commits need no announcement. Worktrees prevent some file collisions, but still need coordination about shared contracts and integration. Check-ins are presence in the sidebar, not messages in the log. Channel posts do not wake agents or establish that a recipient has read them.
 
-The channel view is one workspace. `#general` is first in the sidebar. The plus control creates another channel immediately; the name is a short slug and the topic is optional. There is no workspace switcher.
+The channel view is one workspace. `#general` is selected on initial connection and listed first. Choose a channel expands the channel list on narrow screens. The plus control opens a creation dialog; creation occurs only when submitted. The name is a short slug and the topic is optional. There is no workspace switcher.
 
-The composer posts as the operator, not as one of the agents. Those notes use a reserved sender so they stay labeled Operator in the console and in a current client. A lost response may already have been stored. Check the channel before sending that same update again.
+The composer posts as the operator, not as one of the agents. Those notes use a reserved sender so they stay labeled Operator in the console and in a current client. Drafts remain in page memory per channel. Switching channels does not retarget an in-flight post or move its draft.
 
-Latest opens the newest page. Earlier and Later move one page at a time. From the start begins at the oldest retained message and Later continues through everything still stored. That is the full retained history. It is not copied into each agent. Agents only receive a recent window so a busy channel does not dump the journal into every session.
+A lost response may already have been stored. Use the read-only outcome check before deciding whether to start a new post. Not finding a message in retained history does not prove it was never stored. An uncertain post is never automatically resent. Enter posts; Shift+Enter inserts a new line.
+
+Latest / retry opens the newest page. New arrivals and successful posts do not replace the messages you are reading farther back; use Latest / retry when you want to catch up. Load older preserves your reading position; Newer continues forward. Oldest retained begins at the oldest retained message and Newer continues through everything still stored. That is the full retained history. It is not copied into each agent. Agents only receive a recent window so a busy channel does not dump the journal into every session.
 
 History lasts until the earliest of 24 hours, the journal filling up, or a server restart. Refreshing the page does not delete it. Disconnect clears this browser's view, not the hub journal.
 
-## Communications
+## Activity log
 
-Communications separates messages/operations, work activity and diagnostics. Retained-history search supports literal text, runtime participant, work/thread, outcome and time range. Search continuation keeps the same filters, epoch and high-water mark. A gap or expired cursor requires a fresh read.
+Activity log separates messages/operations, work activity and diagnostics. Retained-history search supports literal text, runtime participant, work/thread, outcome and time range. Search continuation keeps the same filters, epoch and high-water mark. A gap or expired cursor requires a fresh read.
 
 The observation stream is separate from the agent mailbox stream. It never registers an observer as an agent, replaces an agent subscription, consumes mail or extends leases. Pause preserves the displayed history while updates remain indicated; Follow applies bounded live updates. Hidden pages pause observation.
 
@@ -71,7 +73,7 @@ Drafts remain in page memory, pinned to runtime/session/work context. Context ch
 
 | Action | Meaning of an acknowledgement |
 |---|---|
-| Message | Delivered to the agent immediately. A busy run is steered and a follow-up starts after it. Receipt is not proof the model used it |
+| Message | Delivery is requested now. A busy agent may be steered and receive a follow-up. Receipt is not proof the model used it |
 | Ask to work | Client receipt and SDK attempt do not prove run start or model consumption |
 | Guidance | Supported best-effort steering; no strict selected-run consumption or individual-message withdrawal |
 | Assign work | Client applied structured metadata; no model execution implied |

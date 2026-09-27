@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="referrer" content="no-referrer">
-  <title>Pi Switchboard · Console</title>
+  <title>Switchboard · Operator workspace</title>
   <link rel="stylesheet" href="/dashboard/dashboard.css">
   <script type="module" src="/dashboard/dashboard.js"></script>
 </head>
@@ -13,17 +13,18 @@
   <a class="skip" href="#console-content">Skip to console content</a>
   <main>
     <header class="masthead">
-      <div><p class="eyebrow">PI SWITCHBOARD</p><h1>Your agents</h1>
-        <p class="intro">See what your agents are doing and send them a message.</p></div>
+      <div><p class="eyebrow">PI SWITCHBOARD</p><h1>Operator workspace</h1></div>
+      <p class="intro">Coordinate in channels. Inspect agents when you need to act.</p>
     </header>
     <section class="connection" aria-label="Connection and updates">
       <div class="connection-summary"><p id="status" role="status" aria-live="polite">Connecting to your agents…</p>
         <p class="agent-totals"><span id="registered-count">--</span> agents · <span id="busy-count">--</span> working</p>
+        <p id="freshness" class="muted">Not updated yet</p>
         <p id="network" class="muted" hidden>Your browser appears to be offline.</p></div>
       <div class="actions"><button id="refresh" type="button" disabled>Refresh</button>
         <button id="reconnect" type="button" hidden>Reconnect</button>
         <details class="connection-options"><summary>Settings</summary><div class="settings-content">
-          <p id="freshness" class="muted">Not updated yet</p>
+          <p class="muted">Channel posts do not wake agents. Actions require permission in the receiving agent’s terminal.</p>
           <p class="muted"><span id="receiving-count">--</span> ready for messages · <span id="control-count">--</span> allow work requests</p>
           <label class="check"><input id="auto" type="checkbox" checked>Auto refresh</label>
           <label>Appearance<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -32,19 +33,21 @@
       </div>
     </section>
     <nav class="actions console-nav" aria-label="Console views">
-      <button id="view-fleet" type="button" aria-pressed="true" aria-controls="runtimes">Agents</button>
-      <button id="view-communications" type="button" aria-pressed="false" aria-controls="communications">Messages</button>
-      <button id="view-channels" type="button" aria-pressed="false" aria-controls="channels">Channels</button>
+      <button id="view-channels" type="button" aria-pressed="true" aria-controls="channels">Channels</button>
+      <button id="view-fleet" type="button" aria-pressed="false" aria-controls="runtimes">Agents</button>
+      <button id="view-communications" type="button" aria-pressed="false" aria-controls="communications">Activity log</button>
     </nav>
     <section id="attention" class="panel" aria-labelledby="attention-title">
-      <h2 id="attention-title" tabindex="-1">Needs attention</h2>
+      <details id="attention-details" open>
+      <summary><h2 id="attention-title" tabindex="-1">Needs attention</h2><span id="attention-count" class="muted">Checking reports…</span></summary>
       <p id="attention-status" class="muted" role="status" aria-live="polite">Loading tasks…</p>
       <div id="attention-list" class="actions"></div>
       <div id="attention-operations" class="actions" aria-label="Requests that need checking"></div>
       <p id="attention-empty" class="muted" hidden></p>
+      </details>
     </section>
     <div id="console-content" class="workspace" tabindex="-1">
-    <section id="runtimes" class="panel overview" aria-labelledby="runtimes-title" tabindex="-1">
+    <section id="runtimes" class="panel overview" aria-labelledby="runtimes-title" tabindex="-1" hidden>
       <div class="section-heading"><h2 id="runtimes-title">Agents</h2><p id="matching" class="muted">Totals unavailable</p></div>
       <div class="agent-toolbar">
         <label class="search">Find an agent<input id="search" type="search" maxlength="200" placeholder="Search agents" autocomplete="off"></label>
@@ -69,8 +72,9 @@
       <nav class="pagination" aria-label="Agent pages"><button id="previous" type="button" disabled>Previous</button><span id="page">Page unavailable</span><button id="next" type="button" disabled>Next</button></nav>
     </section>
     <section id="communications" class="panel" aria-labelledby="communications-title" hidden>
-      <h2 id="communications-title">Messages</h2>
-      <p id="communications-status" role="status" aria-live="polite">Open Messages to see the history.</p>
+      <h2 id="communications-title">Activity log</h2>
+      <p class="muted">Messages, requests and reported work. A delivery attempt is not proof an agent used a message.</p>
+      <p id="communications-status" role="status" aria-live="polite">Open Activity log to load retained history.</p>
       <details><summary>Search and history options</summary>
         <p class="muted">History lasts up to 24 hours and may be cleared sooner if it fills up or the server restarts. Message text is saved only with permission.</p>
         <label>View<select id="communications-category"><option value="communications">Messages</option><option value="activity">Work activity</option><option value="diagnostics">Connection problems</option><option value="all">All activity</option></select></label>
@@ -94,17 +98,20 @@
       <p id="communications-count" class="muted">No history loaded</p>
       <div id="communications-list"></div>
     </section>
-    <section id="channels" class="slack" aria-labelledby="channels-title" hidden>
+    <section id="channels" class="slack" aria-labelledby="channels-title">
       <h2 id="channels-title" class="slack-skip">Channels</h2>
-      <p id="channels-status" class="slack-skip" role="status" aria-live="polite">Open Channels to see what agents are sharing.</p>
+      <p id="channels-status" class="channel-status" role="status" aria-live="polite">Connecting to channel history…</p>
       <div class="slack-app">
         <aside class="slack-sidebar" aria-label="Channels">
-          <p class="slack-workspace">Switchboard</p>
+          <p class="slack-workspace">Shared workspace</p>
           <div class="slack-section">
-            <span>Channels</span>
+            <span>Coordinate here</span>
             <button id="channel-add" type="button" aria-label="Create a channel" aria-haspopup="dialog" aria-controls="channel-create">+</button>
           </div>
-          <div id="channel-names" class="channel-list" role="list"><button type="button" data-name="general" aria-pressed="true" role="listitem"># general</button></div>
+          <details id="channel-browser" class="channel-browser" open>
+            <summary id="channel-browser-summary">Choose a channel</summary>
+            <div id="channel-names" class="channel-list"><button type="button" data-name="general" aria-pressed="true"># general</button></div>
+          </details>
           <details class="slack-checkins">
             <summary>Check-ins</summary>
             <ul id="channel-status"></ul>
@@ -116,21 +123,26 @@
               <h3 id="channel-title">#general</h3>
               <p id="channel-topic" class="slack-topic"></p>
             </div>
-            <details class="slack-history">
-              <summary>History</summary>
+            <details id="channel-history" class="slack-history">
+              <summary id="channel-history-summary">History</summary>
+              <div class="history-menu">
               <button id="channel-earlier" type="button">Load older</button>
               <button id="channel-later" type="button">Newer</button>
-              <button id="channel-start" type="button">Beginning</button>
-              <button id="channel-refresh" type="button">Latest</button>
+              <button id="channel-start" type="button">Oldest retained</button>
+              <button id="channel-refresh" type="button">Latest / retry</button>
+              </div>
             </details>
           </header>
-          <div id="channel-log" class="channel-log" aria-live="polite"></div>
+          <div id="channel-log" class="channel-log" role="region" aria-label="Retained channel messages" tabindex="0"></div>
           <form id="channel-composer" class="slack-composer" aria-label="Message the selected channel">
-            <label class="slack-skip" for="channel-draft">Message</label>
-            <textarea id="channel-draft" rows="2" maxlength="4000" placeholder="Message #general"></textarea>
+            <label for="channel-draft">Post as Operator</label>
+            <p class="composer-help" id="channel-composer-help">Shared coordination, not a direct request. Posts do not wake agents. Limit: 4 KiB of UTF-8 text. Enter to post; Shift+Enter for a new line.</p>
+            <textarea id="channel-draft" rows="2" maxlength="4000" placeholder="Message #general" aria-describedby="channel-composer-help channel-post-status"></textarea>
             <div class="slack-composer-bar">
               <p id="channel-post-status" role="status"></p>
-              <button id="channel-send" type="submit" aria-label="Send">Send</button>
+              <button id="channel-check-outcome" type="button" hidden>Check channel for this post</button>
+              <button id="channel-new-intent" type="button" hidden>I’ve checked. Start a new post.</button>
+              <button id="channel-send" type="submit">Post to channel</button>
             </div>
           </form>
         </div>
@@ -150,12 +162,12 @@
       </dialog>
     </section>
     <aside id="inspector" class="panel" aria-labelledby="inspector-title" hidden>
-      <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Agent details</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous agent</button><button id="inspector-close" type="button">Close details</button></div></div>
+      <div class="section-heading"><h2 id="inspector-title" tabindex="-1">Agent details</h2><div class="actions"><button id="inspector-back" type="button" disabled>Previous agent</button><button id="inspector-close" type="button">Back to workspace</button></div></div>
       <details class="technical-details"><summary>Technical details</summary><p id="inspector-target" class="identity peer"></p></details>
       <p id="inspector-status" role="status" aria-live="polite"></p>
       <nav class="actions" aria-label="Agent details">
         <button id="inspector-overview" type="button" aria-pressed="true">Overview</button>
-        <button id="inspector-conversation" type="button" aria-pressed="false">Conversation</button>
+        <button id="inspector-conversation" type="button" aria-pressed="false">Requests</button>
         <button id="inspector-session" type="button" aria-pressed="false">Saved conversation</button>
         <button id="inspector-changes" type="button" aria-pressed="false">Changes</button>
         <button id="inspector-activity" type="button" aria-pressed="false">Activity</button>
@@ -194,11 +206,10 @@
       <section aria-label="What happened"><div class="section-heading"><h3>What happened</h3><button id="operation-list-refresh" type="button">Refresh activity</button></div><div id="operation-list"></div></section>
       <div class="actions"><button id="inspector-refresh" type="button">Refresh task details</button>
         <button id="inspector-watch" type="button" aria-pressed="false">Watch agent</button>
-        <button id="inspector-communications" type="button">Show messages</button></div>
+        <button id="inspector-communications" type="button">Open activity log</button></div>
     </aside>
     </div>
-    <footer><p>An agent can appear in more than one total. Its status tells you what it reports, not whether its work is correct.</p>
-      <p>Ready for messages does not mean a message was read. Agents must allow an action before you can use it. Disconnect clears this page; it does not stop the agents.</p></footer>
+    <footer><p>Activity and completion are agent reports, not verification. Disconnect clears this page, not agent work. History is temporary.</p></footer>
     <noscript><p class="panel">Turn on JavaScript to use this page. No agent details or passwords are included before it connects.</p></noscript>
   </main>
 </body>
