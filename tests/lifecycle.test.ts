@@ -37,7 +37,7 @@ it("factory binds the exact commands/tools and no network, clocks, UUID, hostnam
   const sdk = host(); const fail = () => { throw Error("factory effect"); };
   createAgentBusExtension({ pi: sdk.pi, env: { PI_AGENT_BUS_TOKEN: "synthetic" }, fetch: fail, uuid: fail, hostname: fail, now: fail, timers: { setTimeout: fail, clearTimeout: fail } });
   assert.deepEqual([...sdk.commands.keys()].sort(), ["agents", "bus", "label", "tell"]);
-  assert.deepEqual([...sdk.tools.keys()].sort(), ["get_coordination_guidance", "list_agents", "list_channels", "post_channel", "read_channel", "report_work", "send_agent_message", "set_agent_label", "update_channel_status"]);
+  assert.deepEqual([...sdk.tools.keys()].sort(), ["get_coordination_guidance", "list_agents", "list_channels", "post_channel", "read_channel", "report_work", "send_agent_message", "set_agent_label", "set_coordination_scope", "update_channel_status"]);
   assert.ok(sdk.events.has("agent_settled")); assert.ok(!sdk.events.has("agent_end")); assert.ok(!sdk.events.has("session_switch"));
 });
 

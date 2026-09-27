@@ -4,7 +4,7 @@ import { bindCommands } from "./commands.ts";
 import { bindTools } from "./tools.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { safeText } from "./viewer.ts";
-export type { AgentBusDeps, AgentBusRuntime, Env } from "./runtime.ts";
+export type { AgentBusDeps, AgentBusRuntime, ChannelReadMode, Env, MessageReference, ReadTicket, ReturnedCheckpoint } from "./runtime.ts";
 
 /** Cold factory: bind SDK callbacks only. Session startup owns all producers. */
 export function createAgentBusExtension(deps: AgentBusDeps = {}) {
@@ -21,6 +21,7 @@ function bindHost(pi: ExtensionAPI, runtime: ReturnType<typeof createRuntime>): 
   pi.on("model_select", (event, ctx) => runtime.modelSelect(event.model, ctx));
   pi.on("session_info_changed", (_event, ctx) => runtime.refresh(ctx));
   pi.on("session_tree", (_event, ctx) => runtime.refresh(ctx, true));
+  pi.on("session_compact", (_event, ctx) => runtime.sessionCompact(ctx));
   pi.on('tool_execution_start', (event, ctx) => runtime.toolActivity(event, 'started', ctx));
   pi.on('tool_execution_end', (event, ctx) => runtime.toolActivity(event, 'ended', ctx));
   pi.on("before_agent_start", () => runtime.beforeAgentStart());

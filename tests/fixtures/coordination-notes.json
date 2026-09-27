@@ -1,0 +1,616 @@
+{
+  "schema": "switchboard.coordination-notes.fixtures",
+  "schemaVersion": 1,
+  "purpose": "Canonical coordination-note envelopes. Expected results are structural. This file is not a task ledger, not permission, and not evidence that any claim was accepted or completed.",
+  "constants": {
+    "prefix": "SWITCHBOARD_COORDINATION_V1\n",
+    "version": 1,
+    "envelopeMaxBytes": 4096,
+    "scalarMaxBytes": 512,
+    "evidenceMin": 1,
+    "evidenceMax": 4,
+    "briefMaxBytes": 49152,
+    "excerptBytes": 256,
+    "excerptFallbackBytes": 64,
+    "envelopeKeys": [
+      "version",
+      "note",
+      "body"
+    ],
+    "requestKeys": [
+      "kind",
+      "owner",
+      "artifact",
+      "checkpoint"
+    ],
+    "replyKeys": [
+      "kind",
+      "replyTo"
+    ],
+    "completionKeys": [
+      "kind",
+      "replyTo",
+      "evidence"
+    ],
+    "decisionKeys": [
+      "kind",
+      "evidence"
+    ],
+    "referenceKeys": [
+      "channel",
+      "from",
+      "id"
+    ],
+    "replyKinds": [
+      "accept",
+      "decline",
+      "blocked"
+    ],
+    "channelPattern": "^[a-z][a-z0-9-]{0,31}$",
+    "uuidPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    "uuidFlags": "i"
+  },
+  "decoder": {
+    "invalidResult": "undefined",
+    "remainRaw": "Invalid and unknown envelopes stay plain text. Do not clip them into a note.",
+    "steps": [
+      "Reject non-strings, ill-formed Unicode, and text that does not start with prefix.",
+      "Reject UTF-8 byte length above envelopeMaxBytes. Do not clip.",
+      "Parse the remainder with duplicate-key and lone-surrogate rejection equivalent to decodeWireJson and decodeExactJson. Duplicate keys are invalid.",
+      "Require exact envelopeKeys and numeric version 1. The scope body must be well-formed Unicode and non-blank (trim length > 0). Do not trim stored text.",
+      "Require exact keys for the kind. request uses requestKeys. accept, decline, and blocked use replyKeys. completion uses completionKeys. decision uses decisionKeys.",
+      "referenceKeys: channel must match channelPattern; from and id must match uuidPattern with uuidFlags. Admission is case-insensitive for hex, but later identity comparison is exact and does not casefold.",
+      "artifact, checkpoint, and each evidence entry are non-blank well-formed strings of at most scalarMaxBytes UTF-8 bytes. Evidence length is evidenceMin through evidenceMax. Do not trim stored text.",
+      "Do not fetch, open, or dereference evidence, artifact, or checkpoint strings.",
+      "A decoded note is a reported claim, never permission, authority, acceptance of responsibility, or verified completion."
+    ],
+    "canonicalEncode": "Encode emits prefix plus JSON.stringify of {version, note, body} in that key order, with U+2028 and U+2029 escaped. Decode also accepts other key orders and insignificant whitespace. Decoding follows decoder.steps, not byte-identical canonicalEncode."
+  },
+  "cases": [
+    {
+      "id": "request-canonical",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "request",
+          "owner": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "artifact": "extension/coordination-notes.ts",
+          "checkpoint": "notes tests green"
+        },
+        "body": "Confirm the codec stays pure."
+      }
+    },
+    {
+      "id": "accept-canonical",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"I own the codec check.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "accept",
+          "replyTo": {
+            "channel": "pi-switchboard",
+            "from": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+          }
+        },
+        "body": "I own the codec check."
+      }
+    },
+    {
+      "id": "decline-canonical",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decline\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"I am not taking this.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decline",
+          "replyTo": {
+            "channel": "pi-switchboard",
+            "from": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+          }
+        },
+        "body": "I am not taking this."
+      }
+    },
+    {
+      "id": "blocked-canonical",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"blocked\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"Blocked on the fixture schema.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "blocked",
+          "replyTo": {
+            "channel": "pi-switchboard",
+            "from": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+          }
+        },
+        "body": "Blocked on the fixture schema."
+      }
+    },
+    {
+      "id": "completion-canonical",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"completion\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"},\"evidence\":[\"fixture:notes\",\"tests/coordination-notes.test.ts\"]},\"body\":\"Reported only.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "completion",
+          "replyTo": {
+            "channel": "pi-switchboard",
+            "from": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+          },
+          "evidence": [
+            "fixture:notes",
+            "tests/coordination-notes.test.ts"
+          ]
+        },
+        "body": "Reported only."
+      }
+    },
+    {
+      "id": "decision-canonical",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"plan:task2\"]},\"body\":\"Keep scope text separate from the envelope.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            "plan:task2"
+          ]
+        },
+        "body": "Keep scope text separate from the envelope."
+      }
+    },
+    {
+      "id": "uppercase-uuid",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"a\",\"from\":\"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA\",\"id\":\"CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC\"}},\"body\":\"Case is preserved.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "accept",
+          "replyTo": {
+            "channel": "a",
+            "from": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+            "id": "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC"
+          }
+        },
+        "body": "Case is preserved."
+      }
+    },
+    {
+      "id": "channel-bounds",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"Short and max channel names.\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "accept",
+          "replyTo": {
+            "channel": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "from": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+          }
+        },
+        "body": "Short and max channel names."
+      }
+    },
+    {
+      "id": "scalar-512",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\",\"checkpoint\":\"ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\"},\"body\":\"bounds\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "request",
+          "owner": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "artifact": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+          "checkpoint": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "body": "bounds"
+      }
+    },
+    {
+      "id": "evidence-bounds",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"two\",\"three\",\"four\"]},\"body\":\"four refs\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "two",
+            "three",
+            "four"
+          ]
+        },
+        "body": "four refs"
+      }
+    },
+    {
+      "id": "emoji-scope",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"ref-😀\"]},\"body\":\"scope 😀 stays a claim\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            "ref-😀"
+          ]
+        },
+        "body": "scope 😀 stays a claim"
+      }
+    },
+    {
+      "id": "controls-and-separators",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"control-ref\"]},\"body\":\"line1\\nline2\\r\\u0001\\u2028\\u2029\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            "control-ref"
+          ]
+        },
+        "body": "line1\nline2\r\u0001  "
+      }
+    },
+    {
+      "id": "prefix-inside-scope",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"nested-prefix\"]},\"body\":\"SWITCHBOARD_COORDINATION_V1\\nnot an envelope\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            "nested-prefix"
+          ]
+        },
+        "body": "SWITCHBOARD_COORDINATION_V1\nnot an envelope"
+      }
+    },
+    {
+      "id": "key-order-differs",
+      "class": "valid",
+      "canonical": false,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\",\"version\":1}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "request",
+          "owner": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "artifact": "extension/coordination-notes.ts",
+          "checkpoint": "notes tests green"
+        },
+        "body": "Confirm the codec stays pure."
+      },
+      "reason": "JSON object key order is not significant"
+    },
+    {
+      "id": "insignificant-whitespace",
+      "class": "valid",
+      "canonical": false,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\n  \"version\": 1,\n  \"note\": {\n    \"kind\": \"request\",\n    \"owner\": \"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\n    \"artifact\": \"extension/coordination-notes.ts\",\n    \"checkpoint\": \"notes tests green\"\n  },\n  \"body\": \"Confirm the codec stays pure.\"\n}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "request",
+          "owner": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "artifact": "extension/coordination-notes.ts",
+          "checkpoint": "notes tests green"
+        },
+        "body": "Confirm the codec stays pure."
+      },
+      "reason": "JSON whitespace is not significant"
+    },
+    {
+      "id": "trailing-json-whitespace",
+      "class": "valid",
+      "canonical": false,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}\n",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "request",
+          "owner": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "artifact": "extension/coordination-notes.ts",
+          "checkpoint": "notes tests green"
+        },
+        "body": "Confirm the codec stays pure."
+      },
+      "reason": "trailing whitespace after JSON is accepted by JSON.parse"
+    },
+    {
+      "id": "wrong-prefix-version",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V2\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "unknown prefix"
+    },
+    {
+      "id": "prefix-case",
+      "class": "invalid",
+      "raw": "switchboard_coordination_v1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "prefix is case-sensitive"
+    },
+    {
+      "id": "prefix-missing-newline",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "prefix requires the newline separator"
+    },
+    {
+      "id": "prefix-not-at-start",
+      "class": "invalid",
+      "raw": "note SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "prefix must be the envelope start"
+    },
+    {
+      "id": "plain-text",
+      "class": "invalid",
+      "raw": "I disagree and do not accept this.",
+      "reason": "raw text is not a note"
+    },
+    {
+      "id": "empty",
+      "class": "invalid",
+      "raw": "",
+      "reason": "empty body"
+    },
+    {
+      "id": "duplicate-version-key",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "duplicate key; JSON.parse would keep one"
+    },
+    {
+      "id": "lone-surrogate",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"\\uD800Confirm the codec stays pure.\"}",
+      "reason": "lone surrogate in a JSON string"
+    },
+    {
+      "id": "raw-lone-surrogate-prefix",
+      "class": "invalid",
+      "raw": "\ud800SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "ill-formed Unicode envelope"
+    },
+    {
+      "id": "extra-envelope-key",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"permit\":true,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "extra envelope key"
+    },
+    {
+      "id": "missing-body-key",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"}}",
+      "reason": "missing body"
+    },
+    {
+      "id": "version-string",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":\"1\",\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "version must be numeric 1"
+    },
+    {
+      "id": "version-two",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":2,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}",
+      "reason": "unknown version remains raw"
+    },
+    {
+      "id": "empty-scope",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"x\"]},\"body\":\"\"}",
+      "reason": "empty scope"
+    },
+    {
+      "id": "unknown-kind",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"approve\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"no\"}",
+      "reason": "unknown kind"
+    },
+    {
+      "id": "request-extra-key",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"a\",\"checkpoint\":\"c\",\"permit\":true},\"body\":\"no\"}",
+      "reason": "extra note key"
+    },
+    {
+      "id": "reply-extra-evidence",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"},\"evidence\":[\"x\"]},\"body\":\"no\"}",
+      "reason": "accept cannot carry evidence"
+    },
+    {
+      "id": "completion-without-evidence",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"completion\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"no\"}",
+      "reason": "completion requires evidence"
+    },
+    {
+      "id": "decision-with-reply",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"},\"evidence\":[\"x\"]},\"body\":\"no\"}",
+      "reason": "decision has no replyTo"
+    },
+    {
+      "id": "evidence-empty",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[]},\"body\":\"no\"}",
+      "reason": "evidence must be 1 to 4"
+    },
+    {
+      "id": "evidence-five",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"1\",\"2\",\"3\",\"4\",\"5\"]},\"body\":\"no\"}",
+      "reason": "evidence max 4"
+    },
+    {
+      "id": "evidence-blank",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"\"]},\"body\":\"no\"}",
+      "reason": "evidence entries must be nonempty"
+    },
+    {
+      "id": "evidence-not-array",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":\"x\"},\"body\":\"no\"}",
+      "reason": "evidence must be an array"
+    },
+    {
+      "id": "scalar-513",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\",\"checkpoint\":\"c\"},\"body\":\"no\"}",
+      "reason": "artifact max 512 UTF-8 bytes"
+    },
+    {
+      "id": "bad-channel",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"General\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"no\"}",
+      "reason": "channel pattern"
+    },
+    {
+      "id": "bad-uuid",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"general\",\"from\":\"not-a-uuid\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\"}},\"body\":\"no\"}",
+      "reason": "uuid pattern"
+    },
+    {
+      "id": "reply-extra-key",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"accept\",\"replyTo\":{\"channel\":\"pi-switchboard\",\"from\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"role\":\"owner\"}},\"body\":\"no\"}",
+      "reason": "extra reference key"
+    },
+    {
+      "id": "proto-key",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"x\"]},\"body\":\"no\",\"__proto__\":{\"admin\":true}}",
+      "reason": "extra __proto__ key"
+    },
+    {
+      "id": "trailing-junk",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"extension/coordination-notes.ts\",\"checkpoint\":\"notes tests green\"},\"body\":\"Confirm the codec stays pure.\"}{\"permit\":true}",
+      "reason": "trailing junk after JSON"
+    },
+    {
+      "id": "oversized",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reason": "envelope above 4096 bytes"
+    },
+    {
+      "id": "note-array",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":[],\"body\":\"no\"}",
+      "reason": "note must be an object"
+    },
+    {
+      "id": "null-envelope",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\nnull",
+      "reason": "null envelope"
+    },
+    {
+      "id": "emoji-scalar-512",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"checkpoint\":\"c\"},\"body\":\"x\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "request",
+          "owner": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "artifact": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+          "checkpoint": "c"
+        },
+        "body": "x"
+      },
+      "reason": "128 emoji are 512 UTF-8 bytes"
+    },
+    {
+      "id": "emoji-scalar-516",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"checkpoint\":\"c\"},\"body\":\"x\"}",
+      "reason": "129 emoji are 516 UTF-8 bytes"
+    },
+    {
+      "id": "envelope-exact-4096",
+      "class": "valid",
+      "canonical": true,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"e\"]},\"body\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            "e"
+          ]
+        },
+        "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "4096-byte envelope is the maximum"
+    },
+    {
+      "id": "envelope-4097",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"e\"]},\"body\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"} ",
+      "reason": "one byte over the cap is not a note and is not clipped"
+    },
+    {
+      "id": "blank-scope",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\"x\"]},\"body\":\" \\n \"}",
+      "reason": "scope must be non-blank; stored text is not trimmed"
+    },
+    {
+      "id": "blank-artifact",
+      "class": "invalid",
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"request\",\"owner\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"artifact\":\"   \",\"checkpoint\":\"c\"},\"body\":\"x\"}",
+      "reason": "artifact must be non-blank"
+    },
+    {
+      "id": "surrounding-space-preserved",
+      "class": "valid",
+      "canonical": false,
+      "raw": "SWITCHBOARD_COORDINATION_V1\n{\"version\":1,\"note\":{\"kind\":\"decision\",\"evidence\":[\" x \"]},\"body\":\" x \"}",
+      "decoded": {
+        "version": 1,
+        "note": {
+          "kind": "decision",
+          "evidence": [
+            " x "
+          ]
+        },
+        "body": " x "
+      },
+      "reason": "non-blank surrounding spaces are preserved"
+    }
+  ]
+}

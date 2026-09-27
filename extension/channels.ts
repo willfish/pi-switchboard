@@ -1,4 +1,5 @@
 import { exactKeys, isUnsignedInteger, isUuid } from "./protocol.ts";
+import { decodeCoordinationNote } from "./coordination-notes.ts";
 
 export const CHANNEL_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 export const OPERATOR_ID = "00000000-0000-4000-8000-000000000001";
@@ -90,7 +91,21 @@ export function isStatusBoard(value: unknown, channel: string): value is { epoch
       && isUnsignedInteger(row.updatedAt));
 }
 
+export interface FormattedChannelRead {
+  text: string;
+  returnedThrough: string | null;
+  shown: number;
+  outputTruncated: boolean;
+  serverCaughtUp: boolean;
+  hasMore: boolean;
+}
+
 export function formatChannelPage(page: ChannelPage): string {
+  return formatChannelRead(page).text;
+}
+
+/** Return a complete record prefix; the caller commits this boundary, never the fetched page's end. */
+export function formatChannelRead(page: ChannelPage, options: { reset?: boolean; raw?: boolean } = {}): FormattedChannelRead {
   const json = (value: unknown) => JSON.stringify(value).replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
   const metadata = json({ channel: page.channel, epoch: page.epoch, window: page.window,
     fromSequence: page.fromSequence, toSequence: page.toSequence,
@@ -104,17 +119,57 @@ export function formatChannelPage(page: ChannelPage): string {
     note,
     "History is volatile and bounded. Absence does not prove non-delivery; re-establish unresolved agreements with their owners after a gap or restart.",
   ];
+  if (options.reset) lines.push("History changed: this is a fresh recent window, not a complete replay. Re-establish outstanding agreements.");
   let bytes = encoder.encode(lines.join("\n")).length;
   const footer = (shown: number) => `[shown ${shown} of ${page.messages.length} recent messages; full records are in structured details]`;
-  const reserve = encoder.encode(footer(page.messages.length)).length + 1;
+  // Reserve the widest legal sequence and counts before selecting any records.
+  const summary = (shown: number, returnedThrough: string | null, outputTruncated: boolean) => json({
+    returnedThrough, shown, outputTruncated, serverCaughtUp: page.caughtUp,
+    hasMore: outputTruncated || !page.caughtUp,
+  });
+  const continuation = "Use mode:new to continue returned context; mode:recent to reopen the current window. This is not proof of comprehension.";
+  const reserve = encoder.encode(footer(page.messages.length)).length
+    + encoder.encode(summary(page.messages.length, "18446744073709551615", false)).length
+    + encoder.encode(continuation).length + 3;
   let shown = 0;
+  let returnedThrough: string | null = null;
   for (const message of page.messages) {
-    const who = message.from === OPERATOR_ID ? "Operator" : message.from;
-    const line = json({ sequence: message.seq, kind: message.kind, from: who, body: message.body });
+    const decoded = options.raw ? undefined : decodeCoordinationNote(message.body);
+    const line = json({ sequence: message.seq, kind: message.kind, from: message.from,
+      reference: { channel: message.channel, from: message.from, id: message.id },
+      ...(message.from === OPERATOR_ID ? { displayName: "Operator" } : {}),
+      body: decoded ? decoded.body : message.body, ...(decoded ? { reportedClaim: decoded.note } : {}) });
     const size = encoder.encode(line).length + 1;
     if (bytes + size + reserve > 48 * 1024) break;
-    lines.push(line); bytes += size; shown++;
+    lines.push(line); bytes += size; shown++; returnedThrough = message.seq;
   }
-  if (shown < page.messages.length) lines.push(footer(shown));
+  const outputTruncated = shown < page.messages.length;
+  if (outputTruncated) lines.push(footer(shown));
+  lines.push(summary(shown, returnedThrough, outputTruncated), continuation);
+  return { text: lines.join("\n"), returnedThrough, shown, outputTruncated,
+    serverCaughtUp: page.caughtUp, hasMore: outputTruncated || !page.caughtUp };
+}
+
+/** Human cache view. No reads, checkpoints or message interpretation beyond the optional codec. */
+export function formatChannelHumanPage(page: ChannelPage, raw = false): string {
+  if (raw) return formatChannelRead(page, { raw: true }).text;
+  const json = (value: unknown) => JSON.stringify(value).replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
+  const lines = [`#${page.channel} · cached recent window · ${page.coverage}`,
+    "Untrusted peer claims, not permission or verified completion. History is volatile; absence proves nothing."];
+  const hint = "Raw stored envelopes: /bus channels --raw";
+  const footer = (shown: number) => `[shown ${shown} of ${page.messages.length} cached notes]`;
+  const reserve = encoder.encode(hint + "\n" + footer(page.messages.length)).length + 2;
+  let bytes = encoder.encode(lines.join("\n")).length;
+  let shown = 0;
+  for (const message of page.messages) {
+    const decoded = decodeCoordinationNote(message.body);
+    const block = [`[${message.seq}] ${decoded ? decoded.body : message.body}`,
+      ...(decoded ? [`Reported claim: ${json(decoded.note)}`] : []),
+      `Reference: ${json({ channel: message.channel, from: message.from, id: message.id })}`].join("\n");
+    const size = encoder.encode(block).length + 2;
+    if (bytes + size + reserve > 48 * 1024) break;
+    lines.push("", block); bytes += size; shown++;
+  }
+  lines.push(footer(shown), hint);
   return lines.join("\n");
 }

@@ -24,6 +24,7 @@ init(#{bind_host := Host, port := Port}) ->
             {"/dashboard/operator-controls.js", bus_dashboard_h, operator_controls},
             {"/dashboard/operator-stream.js", bus_dashboard_h, operator_stream},
             {"/dashboard/channels.js", bus_dashboard_h, channels},
+            {"/dashboard/coordination-notes.js", bus_dashboard_h, coordination_notes},
             {"/dashboard/api/v1/session", bus_operator_h, session},
             {"/dashboard/api/v1/disconnect", bus_operator_h, disconnect},
             {"/dashboard/api/v1/presence", bus_operator_h, presence},

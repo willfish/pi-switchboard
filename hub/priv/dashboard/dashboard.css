@@ -79,6 +79,8 @@ body.channels-open #channels { min-height: calc(100vh - 150px); }
 #channels .slack-meta strong { font-size: .95rem; }
 #channels .slack-time { color: #616061; font-size: .75rem; font-weight: 450; }
 #channels .channel-note { margin: 1px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#channels .coordination-claim, #channels .coordination-reference, #channels .coordination-raw { font-size: .8rem; opacity: .8; overflow-wrap: anywhere; }
+#channels .coordination-raw pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 #channels .slack-composer { position: relative; margin: 0 18px 16px; border: 1px solid #c4c4c4; border-radius: 8px; padding: 4px 44px 8px 8px; background: #fff; box-shadow: 0 1px 2px #0001; min-height: 84px; }
 #channels .slack-composer textarea { border: 0; min-height: 44px; padding: 8px; background: transparent; color: #1d1c1d; }
 #channels .slack-composer textarea:focus { outline: none; }

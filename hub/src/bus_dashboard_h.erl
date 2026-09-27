@@ -33,7 +33,7 @@ paths() -> [<<"/">>, <<"/dashboard">>, <<"/dashboard/">>,
     <<"/dashboard/operator-events.js">>, <<"/dashboard/console-view.js">>,
     <<"/dashboard/operator-work.js">>, <<"/dashboard/operator-actions.js">>,
     <<"/dashboard/operator-controls.js">>, <<"/dashboard/operator-stream.js">>,
-    <<"/dashboard/channels.js">>].
+    <<"/dashboard/channels.js">>, <<"/dashboard/coordination-notes.js">>].
 
 serve(Req, redirect, Headers) ->
     cowboy_req:reply(302, Headers#{<<"location">> => <<"/dashboard/">>}, <<>>, Req);
@@ -65,4 +65,5 @@ asset(operator_work) -> {"operator-work.js", <<"text/javascript; charset=utf-8">
 asset(operator_actions) -> {"operator-actions.js", <<"text/javascript; charset=utf-8">>};
 asset(operator_controls) -> {"operator-controls.js", <<"text/javascript; charset=utf-8">>};
 asset(operator_stream) -> {"operator-stream.js", <<"text/javascript; charset=utf-8">>};
-asset(channels) -> {"channels.js", <<"text/javascript; charset=utf-8">>}.
+asset(channels) -> {"channels.js", <<"text/javascript; charset=utf-8">>};
+asset(coordination_notes) -> {"coordination-notes.js", <<"text/javascript; charset=utf-8">>}.

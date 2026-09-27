@@ -158,7 +158,7 @@ test("post and send execution passes the call through once and returns the stub 
   const signal = new AbortController().signal;
   const posted = await sdk.tools.get("post_channel").execute("call", { channel: "general", body: "handoff" }, signal);
   assert.deepEqual(posts, [{ channel: "general", body: "handoff", signal }]);
-  assert.equal(posted.content[0].text, "accepted into #general");
+  assert.equal(posted.content[0].text, "accepted into #general; storage is not acknowledgement or completion");
   assert.deepEqual(posted.details, { status: "accepted", id: "post-1", to: "general" });
   const sent = await sdk.tools.get("send_agent_message").execute("call", { to: "peer", body: "need a decision", kind: "prompt" }, signal);
   assert.deepEqual(sends, [{ to: "peer", body: "need a decision", kind: "prompt", signal }]);

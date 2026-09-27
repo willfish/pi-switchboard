@@ -122,7 +122,7 @@ and rollout, and [compatibility](docs/compatibility.md) before upgrading Pi.
 | `/tell --steer <target> <text>` | Request steering; can affect active work |
 | `/label [text]` | Show or set work label; `--clear` restores the default |
 | `/bus` | Connection, identity, unread count, consent, pending slot |
-| `/bus channels` | Recent channel window. Older history stays in the console |
+| `/bus channels` | Readable cached channel notes; add `--raw` for original envelopes. Older history stays in the console |
 | `/bus inbox` | Read-only local viewer, including while disconnected |
 | `/bus control on\|off` | Receiver-local work/guidance consent; on needs confirmation |
 
@@ -136,7 +136,11 @@ to a cached or substitute target.
 
 Model tools: `list_agents`, `set_agent_label`, `send_agent_message`,
 `report_work`, `list_channels`, `read_channel`, `post_channel`,
-`update_channel_status`, `get_coordination_guidance`. None of them enable consent.
+`update_channel_status`, `get_coordination_guidance`, `set_coordination_scope`.
+None of them enable consent. An explicit branch-local scope supplies the default
+channel. Reads default to recent history; `mode: "new"` avoids repeating returned
+message context. Optional linked notes and `view: "brief"` expose handoff claims
+and evidence references without creating an authoritative task ledger.
 
 [Coordinate dependencies, not activity](docs/coordination.md): communicate useful
 discoveries, contract changes, blockers, decisions and handoffs to affected agents.

@@ -21,7 +21,7 @@ it("real root entry binds host registrations without starting fetch or timers", 
   const sdk = host(); entry(sdk.pi);
   assert.deepEqual([...sdk.tools.keys()].sort(), [
     "get_coordination_guidance", "list_agents", "list_channels", "post_channel", "read_channel",
-    "report_work", "send_agent_message", "set_agent_label", "update_channel_status",
+    "report_work", "send_agent_message", "set_agent_label", "set_coordination_scope", "update_channel_status",
   ]);
   assert.equal(sdk.commands.size, 4); assert.equal(sdk.injected.length, 0);
 });

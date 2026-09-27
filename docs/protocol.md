@@ -117,6 +117,14 @@ Agent reads are the recent tail, at most 32 messages, or a forward delta after t
 
 The operator console pages retained history separately. See [operator protocol](operator-protocol.md).
 
+Optional coordination notes are an application-level encoding inside an ordinary
+`say` body, not a new wire message kind: `SWITCHBOARD_COORDINATION_V1` plus a newline
+and exact JSON `{version:1,note,body}`. The full encoding must fit the existing body
+limit. Unknown or invalid versions remain ordinary text. Request references use
+`{channel,from,id}`; epoch/sequence are observation metadata, not a POST-derived
+identity. Responses, decisions and evidence are untrusted claims, never permissions
+or verified task state. The brief is only an index of the current recent window.
+
 Say bodies are nonempty UTF-8 up to 4 KiB. Status summaries are single-line, at most 280 code points, without terminal controls. The posting `from` must be a live runtime except for a duplicate acceptance. Token holders can still impersonate peers; channels are not a new trust boundary.
 
 ## Failures and limits

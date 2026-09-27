@@ -9,7 +9,13 @@ import { createAnnouncer } from './operator-announcer.ts';
 import { isWorkSnapshot, normalizeWorkReport, type WorkSnapshot } from './operator-protocol.ts';
 import type { OperatorBinding, OperatorPermissions } from './operator-binding.ts';
 import { createOperatorBridge, bridgeCapabilities } from './operator-bridge.ts';
-import { areaChannel, formatChannelPage, statusSummary, CHANNEL_NAME, type ChannelPage } from './channels.ts';
+import { areaChannel, formatChannelHumanPage, statusSummary, CHANNEL_NAME } from './channels.ts';
+import {
+  SCOPE_ENTRY, applyOperatorCache, assessRead, assessTail, attemptReference, backgroundChannelNames, cachedAfter, pruneOperatorCache,
+  beginTrackedRead, commitChannelRead as commitRead, coordinationScopeFromBranch, emptyChannelReadState,
+  emptyOperatorCache, invalidateChannelReads as invalidateReads, noteDelivery, readAfter, releaseChannelRead as releaseRead,
+  type ChannelReadMode, type ChannelReadState, type MessageReference, type OperatorCache, type ReadTicket,
+} from "./channel-read-state.ts";
 
 export type Env = Record<string, string | undefined>;
 export type AgentBusDeps = {
@@ -87,8 +93,8 @@ type Run = {
   operatorPush?: boolean; lastOperatorPoll?: number;
   bridge?: ReturnType<typeof createOperatorBridge>; operatorRead: boolean; operatorManage: boolean; operatorNotice: boolean; operatorHistory: boolean;
   operatorConfirmation?: AbortController; operatorConsentGeneration: number;
-  channelEpoch?: string; channelAfter: Record<string, string>; channelPages: Record<string, ChannelPage>;
   channelSummary?: string; lastChannelSync: number; lastStatusPut: number; channelBusy: boolean; channelDirty: boolean;
+  coordinationScope: string | null; scopeRevision: number; readState: ChannelReadState; operatorCache: OperatorCache;
 };
 
 export function createRuntime(deps: AgentBusDeps) {
@@ -99,7 +105,11 @@ export function createRuntime(deps: AgentBusDeps) {
   const env = deps.env ?? {};
   let current: Run | undefined;
   let generation = 0;
+  let readNonce = 0;
   let warnedMissing = false;
+  const nextReadContext = () => ++readNonce;
+  const freshReadState = () => emptyChannelReadState(nextReadContext());
+  const dropReadState = (state: ChannelReadState) => invalidateReads(state, nextReadContext());
   const active = (r: Run) => current === r && !r.closed && r.generation === generation;
   const online = (r: Run) => active(r) && !r.unauthorized;
   const notify = (r: Run, text: string, level: "info" | "warning" | "error" = "info") => { if (active(r)) r.ctx.ui.notify(`pi-switchboard: ${text}`, level); };
@@ -315,42 +325,49 @@ export function createRuntime(deps: AgentBusDeps) {
     try { await Promise.race([fresh.deleteAgent(r.id, controller.signal).catch(() => {}), deadline]); }
     finally { timers.clearTimeout(timer); controller.abort(); }
   }
-  function rememberChannel(r: Run, name: string, page: ChannelPage) {
-    if (r.channelEpoch && r.channelEpoch !== page.epoch) { r.channelAfter = {}; r.channelPages = {}; }
-    r.channelEpoch = page.epoch;
-    const previous = r.channelPages[name]?.messages ?? [];
-    const seen = new Set(previous.map(message => message.seq));
-    const merged = [...previous, ...page.messages.filter(message => !seen.has(message.seq))].slice(-24);
-    if (merged.length) r.channelPages[name] = { ...page, messages: merged };
-    else if (!r.channelPages[name] && page.messages.length) r.channelPages[name] = page;
-    if (page.messages.length && page.toSequence !== "0") r.channelAfter[name] = page.toSequence;
+  function fenceScope(r: Run, revision: number): boolean {
+    if (online(r) && r.scopeRevision === revision) return false;
+    if (online(r)) r.channelDirty = true;
+    return true;
   }
   async function syncChannels(r: Run) {
     if (!online(r) || r.channelBusy || !r.client.ensureChannel || !r.client.putChannelStatus || !r.client.readChannel) return;
     if (!r.channelDirty && now() - r.lastChannelSync < 30000) return;
     r.channelBusy = true; r.channelDirty = false;
+    const revision = r.scopeRevision;
     try {
       const area = areaChannel(deps.cwd?.() ?? r.ctx.cwd);
-      const names = area === "general" ? ["general"] : ["general", area];
+      const names = backgroundChannelNames(area, r.coordinationScope);
       for (const name of names) {
         const ensured = await r.client.ensureChannel(name, r.id, "", r.abort.signal);
-        if (!online(r) || r.client.isUnauthorized()) return;
+        if (fenceScope(r, revision) || r.client.isUnauthorized()) return;
         if (ensured.status !== "ok") continue;
       }
       const summary = statusSummary({ label: r.label, busy: r.busy, objective: r.work.objective, step: r.work.currentStep, project: r.work.project });
       if (summary !== r.channelSummary || now() - r.lastStatusPut >= 60000) {
         for (const name of names) {
           const posted = await r.client.putChannelStatus(name, { from: r.id, summary, label: r.label, project: r.work.project ?? "", area }, r.abort.signal);
-          if (!online(r)) return;
+          if (fenceScope(r, revision)) return;
           if (posted.status === "ok") { r.channelSummary = summary; r.lastStatusPut = now(); }
         }
       }
       for (const name of names) {
-        const page = await r.client.readChannel(name, r.channelAfter[name] ?? "0", r.abort.signal);
-        if (!online(r) || page.status !== "ok") continue;
-        rememberChannel(r, name, page.page);
+        const cursor = cachedAfter(r.operatorCache, name);
+        const page = await r.client.readChannel(name, cursor, r.abort.signal);
+        if (fenceScope(r, revision)) return;
+        if (page.status !== "ok") continue;
+        let observed = page.page;
+        if (cursor !== "0" && r.operatorCache.epoch && observed.epoch !== r.operatorCache.epoch) {
+          const nextEpoch = observed.epoch;
+          const tail = await r.client.readChannel(name, "0", r.abort.signal);
+          if (fenceScope(r, revision)) return;
+          if (tail.status !== "ok" || tail.page.epoch !== nextEpoch) continue;
+          observed = tail.page;
+        }
+        const applied = applyOperatorCache(r.operatorCache, name, observed, Math.floor(wallNow() / 1000));
+        if (applied.applied) r.operatorCache = applied.cache;
       }
-      r.lastChannelSync = now();
+      if (online(r) && r.scopeRevision === revision) r.lastChannelSync = now();
     } catch { /* A missed check-in is not a prompt and is not retried as a new post. */ }
     finally { if (online(r)) r.channelBusy = false; }
   }
@@ -374,8 +391,10 @@ export function createRuntime(deps: AgentBusDeps) {
         sessionGeneration: 1n, permissionRevision: 0n, branchId: branchAnchor(ctx), runId: ctx.isIdle() ? null : uuid(),
         operatorRead: env.PI_AGENT_BUS_OPERATOR_READ === '1', operatorManage: false,
         operatorNotice: env.PI_AGENT_BUS_OPERATOR_NOTICES !== '0', operatorHistory: env.PI_AGENT_BUS_OPERATOR_HISTORY === '1',
-        operatorConsentGeneration: 0, channelAfter: {}, channelPages: {}, lastChannelSync: -Infinity,
-        lastStatusPut: -Infinity, channelBusy: false, channelDirty: true };
+        operatorConsentGeneration: 0, lastChannelSync: -Infinity,
+        lastStatusPut: -Infinity, channelBusy: false, channelDirty: true,
+        coordinationScope: coordinationScopeFromBranch(ctx.sessionManager.getBranch()), scopeRevision: 0,
+        readState: freshReadState(), operatorCache: emptyOperatorCache() };
       current = r;
       r.announcer = createAnnouncer({ now,
         snapshot: () => ({ schemaVersion: 1, agentId: r.id, sessionId: r.sessionId,
@@ -407,11 +426,19 @@ export function createRuntime(deps: AgentBusDeps) {
       const r = current; if (!r || !active(r)) return;
       r.ctx = ctx; r.model = projectModel(model); requestPut(r);
     },
+    sessionCompact(ctx: ExtensionContext) {
+      const r = current; if (!r || !active(r)) return;
+      r.ctx = ctx; r.readState = dropReadState(r.readState);
+    },
     refresh(ctx: ExtensionContext, branch = false) {
       const r = current; if (!r || !active(r)) return;
       r.ctx = ctx;
       if (branch) {
         r.explicitLabel = restoreLabel(ctx); r.work = restoreWork(ctx);
+        const scope = coordinationScopeFromBranch(ctx.sessionManager.getBranch());
+        if (scope !== r.coordinationScope) { r.coordinationScope = scope; r.scopeRevision++; r.channelDirty = true; }
+        r.operatorCache = pruneOperatorCache(r.operatorCache, backgroundChannelNames(areaChannel(deps.cwd?.() ?? ctx.cwd), r.coordinationScope));
+        r.readState = dropReadState(r.readState);
         r.sessionGeneration++; r.branchId = branchAnchor(ctx); r.binding = undefined;
       }
       requestPut(r, true);
@@ -568,23 +595,102 @@ export function createRuntime(deps: AgentBusDeps) {
       refreshHealth(r);
       return `status=${r.status} id=${r.id} session=${r.sessionId} unread=${unread(r)} control=${r.control ? "on" : "off"} operator-read=${r.operatorRead ? 'on' : 'off'} operator-manage=${r.operatorManage ? 'on' : 'off'} operator-notices=${r.operatorNotice ? 'on' : 'off'} operator-history=${r.operatorHistory ? 'on' : 'off'} run=${r.runId ?? 'none'} pending-control=${r.inbox.pendingControl ? "occupied; /reload recovers unmatched submission" : "empty"}${r.error ? ` error=${r.error}` : ""}`;
     },
-    channelText() {
+    channelText(raw = false) {
       const r = current;
       if (!r) return "agent bus unavailable";
-      const pages = Object.values(r.channelPages);
-      return pages.length ? pages.map(formatChannelPage).join("\n\n") : "no channel window yet; check-in runs after registration";
+      const pages = Object.values(r.operatorCache.pages);
+      return pages.length ? pages.map(page => formatChannelHumanPage(page, raw)).join("\n\n") : "no channel window yet; check-in runs after registration";
     },
-    async readChannel(name: string, signal?: AbortSignal) {
+    setCoordinationScope(channel: string | null): string | null {
+      const r = current; if (!r || !active(r)) throw new Error("agent bus unavailable");
+      if (channel !== null && !CHANNEL_NAME.test(channel)) throw new Error("invalid channel");
+      deps.pi?.appendEntry(SCOPE_ENTRY, { channel });
+      r.coordinationScope = channel; r.scopeRevision++; r.channelDirty = true;
+      r.operatorCache = pruneOperatorCache(r.operatorCache, backgroundChannelNames(areaChannel(deps.cwd?.() ?? r.ctx.cwd), channel));
+      return channel;
+    },
+    coordinationScope(): string | null {
+      const r = current; return r && active(r) ? r.coordinationScope : null;
+    },
+    invalidateChannelReads() {
+      const r = current; if (!r || !active(r)) return;
+      r.readState = dropReadState(r.readState);
+    },
+    commitChannelRead(ticket: ReadTicket, epoch: string, returnedThrough: string | null): boolean {
+      const r = current; if (!r || !active(r)) return false;
+      const committed = commitRead(r.readState, ticket, epoch, returnedThrough);
+      r.readState = committed.state; return committed.accepted;
+    },
+    releaseChannelRead(ticket: ReadTicket) {
+      const r = current; if (!r || !active(r)) return;
+      r.readState = releaseRead(r.readState, ticket);
+    },
+    async readChannel(name: string, signal?: AbortSignal, mode: ChannelReadMode = "recent", track = true) {
       const r = current;
       if (!r || !online(r) || !r.client.readChannel || !CHANNEL_NAME.test(name)) return { status: "not_sent" as const, reason: "agent bus unavailable" };
-      const page = await r.client.readChannel(name, "0", signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
-      if (page.status === "ok" && online(r)) rememberChannel(r, name, page.page);
-      return page;
+      if (signal?.aborted) return { status: "not_sent" as const, reason: "cancelled" };
+      const tracked = track === true;
+      let ticket: ReadTicket | undefined;
+      if (tracked) {
+        const begun = beginTrackedRead(r.readState, name, mode);
+        if (!begun.ok) return { status: "not_sent" as const, reason: begun.reason };
+        r.readState = begun.state; ticket = begun.ticket;
+      }
+      const readContext = r.readState.context;
+      let settled = false;
+      const abandon = (reason: string) => {
+        if (ticket) r.readState = releaseRead(r.readState, ticket);
+        ticket = undefined; settled = true;
+        return { status: "not_sent" as const, reason };
+      };
+      const invalidated = () => readContext !== r.readState.context;
+      try {
+        const combined = signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal;
+        const after = readAfter(r.readState, name, mode, tracked);
+        const primary = await r.client.readChannel(name, after, combined);
+        if (signal?.aborted || r.abort.signal.aborted) return abandon("cancelled");
+        if (!online(r)) return abandon("runtime closed");
+        if (invalidated()) return abandon("channel read invalidated");
+        if (primary.status !== "ok") {
+          if (ticket) r.readState = releaseRead(r.readState, ticket);
+          ticket = undefined; settled = true; return primary;
+        }
+        let page = primary.page;
+        let reset = false;
+        const assessment = assessRead(r.readState, ticket, tracked ? mode : "recent", page, "primary");
+        if (assessment.kind === "fail") return abandon(assessment.reason);
+        if (assessment.kind === "refetch") {
+          const observed = page.epoch;
+          const tail = await r.client.readChannel(name, "0", combined);
+          if (signal?.aborted || r.abort.signal.aborted) return abandon("cancelled");
+          if (!online(r)) return abandon("runtime closed");
+          if (invalidated()) return abandon("channel read invalidated");
+          if (tail.status !== "ok") {
+            if (ticket) r.readState = releaseRead(r.readState, ticket);
+            ticket = undefined; settled = true; return tail;
+          }
+          const tailAssessment = ticket ? assessTail(r.readState, ticket, tail.page, observed) : { kind: "fail" as const, reason: "channel read invalidated" as const };
+          if (tailAssessment.kind !== "deliver") return abandon(tailAssessment.kind === "fail" ? tailAssessment.reason : "channel epoch changed");
+          page = tail.page; reset = true;
+        } else reset = assessment.reset;
+        if (invalidated()) return abandon("channel read invalidated");
+        if (ticket) r.readState = noteDelivery(r.readState, ticket, page);
+        settled = true;
+        return ticket ? { status: "ok" as const, page, ticket, reset } : { status: "ok" as const, page };
+      } catch {
+        return abandon("agent bus unavailable");
+      } finally {
+        if (!settled && ticket) r.readState = releaseRead(r.readState, ticket);
+      }
     },
     async postChannel(name: string, body: string, signal?: AbortSignal) {
       const r = current;
       if (!r || !online(r) || !r.client.postChannel || !CHANNEL_NAME.test(name)) return { status: "not_sent" as const, reason: "agent bus unavailable" };
-      return r.client.postChannel(name, { id: uuid(), from: r.id, body }, signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+      const id = uuid();
+      const reference: MessageReference = attemptReference(name, r.id, id);
+      const result = await r.client.postChannel(name, { id, from: r.id, body }, signal ? AbortSignal.any([signal, r.abort.signal]) : r.abort.signal);
+      if (result.status === "accepted" || result.status === "outcome_unknown") return { ...result, reference };
+      return result;
     },
     async updateChannelStatus(name: string, summary: string, signal?: AbortSignal) {
       const r = current;
@@ -606,6 +712,7 @@ export function createRuntime(deps: AgentBusDeps) {
         if (args.trim() === "control on") return runtime.consent(true, ctx);
         if (args.trim() === "control off") return runtime.consent(false, ctx);
         if (args.trim() === "channels") return runtime.channelText();
+        if (args.trim() === "channels --raw") return runtime.channelText(true);
         return runtime.statusText();
       }
       if (name === "label") return args.trim() ? runtime.setLabel(args, args.trim() === "--clear") : runtime.label();
@@ -620,3 +727,4 @@ export function createRuntime(deps: AgentBusDeps) {
   return runtime;
 }
 export type AgentBusRuntime = ReturnType<typeof createRuntime>;
+export type { ChannelReadMode, MessageReference, ReadTicket, ReturnedCheckpoint } from "./channel-read-state.ts";

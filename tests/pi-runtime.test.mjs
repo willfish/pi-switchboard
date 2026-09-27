@@ -242,7 +242,7 @@ async function setup(t, { operator = false, hub: startHub = true } = {}) {
       const status = await response.json(); return states.includes(status.state) ? status : undefined;
     }, `operation ${states.join('/')}`, 30000);
   }
-  return { home, launch, agents, send, postChannel, modelProvider, sender, operatorRequest, work, operate, operationState,
+  return { home, launch, agents, send, postChannel, registerSender, modelProvider, sender, operatorRequest, work, operate, operationState,
     proxy: async () => {
       const proxy = await responseProxy(url); cleanup.push(() => proxy.close()); return proxy;
     },
@@ -355,6 +355,75 @@ test('extracted guidance tool runs without a hub', { timeout: 60000 }, async t =
   assert.ok(transcript.includes('Background polling never inserts channel content or starts turns') || transcript.includes('A channel read does not start a turn'));
   assert.equal((await pi.events()).filter(e => e.type === 'agent_start').length, 1);
   assert.deepEqual(f.modelProvider.errors, []);
+});
+
+async function runFixtureTool(f, pi, name, args) {
+  const settled = settledCount(await pi.events());
+  f.modelProvider.scripts.push({ tool: { name, arguments: args } });
+  await pi.submit(`Run the ${name} fixture operation.`);
+  await waitFor(async () => settledCount(await pi.events()) > settled, `${name} settled`);
+  const messages = f.modelProvider.requests.at(-1)?.messages ?? [];
+  const result = messages.filter(message => message.role === 'tool').at(-1);
+  assert.ok(result, `${name} returned a tool result to the provider`);
+  return typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+}
+
+test('scoped linked handoffs, incremental reads and compaction recovery use actual Pi tools', { timeout: 120000 }, async t => {
+  const f = await setup(t);
+  const pi = await f.launch({ settings: { compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 1024 } } });
+  const agent = await f.receiving(pi.cwd);
+  await f.registerSender();
+  await f.postChannel('review', f.sender, 'Initial independent evidence.');
+  assert.match(await runFixtureTool(f, pi, 'set_coordination_scope', { channel: 'review' }), /Coordination scope: #review/);
+  const posted = await runFixtureTool(f, pi, 'post_channel', { body: 'Check artifact abc123 against the old client.',
+    note: { kind: 'request', owner: f.sender, artifact: 'abc123', checkpoint: 'before integration' } });
+  const reference = JSON.parse(posted.split('Attempt reference: ')[1]);
+  assert.equal(reference.channel, 'review');
+  assert.equal(reference.from, agent.agentId);
+  assert.match(reference.id, /^[0-9a-f-]{36}$/);
+  const recent = await runFixtureTool(f, pi, 'read_channel', {});
+  assert.match(recent, /Check artifact abc123/);
+  const unchanged = await runFixtureTool(f, pi, 'read_channel', { mode: 'new' });
+  assert.doesNotMatch(unchanged, /Check artifact abc123/);
+  const reply = 'SWITCHBOARD_COORDINATION_V1\n' + JSON.stringify({ version: 1,
+    note: { kind: 'blocked', replyTo: reference }, body: 'The empty-input integration case still fails.' });
+  await f.registerSender();
+  await f.postChannel('review', f.sender, reply);
+  const brief = await runFixtureTool(f, pi, 'read_channel', { view: 'brief' });
+  assert.match(brief, /empty-input integration case still fails/);
+  assert.ok(brief.includes(reference.id));
+  const delta = await runFixtureTool(f, pi, 'read_channel', { mode: 'new' });
+  assert.match(delta, /empty-input integration case still fails/);
+  assert.doesNotMatch(delta, /Check artifact abc123/);
+  await pi.submit('/compact');
+  await pi.event('session_compact');
+  assert.equal((await f.receiving(pi.cwd)).agentId, agent.agentId, 'compaction does not replace registration');
+  const recovered = await runFixtureTool(f, pi, 'read_channel', { mode: 'new' });
+  assert.match(recovered, /Check artifact abc123/);
+  await pi.submit('/reload');
+  await waitFor(async () => (await f.agents()).some(row => row.cwd === pi.cwd && row.agentId !== agent.agentId && row.receiving), 'new runtime after reload');
+  await waitFor(() => stripVTControlCharacters(pi.terminal()).includes('Reloaded keybindings'), 'reload restores the interactive editor');
+  assert.match(await runFixtureTool(f, pi, 'read_channel', {}), /Check artifact abc123/, 'scope restores from active-branch data');
+  assert.deepEqual(f.modelProvider.errors, []);
+});
+
+test('human channel view shows note bodies and explicit raw envelopes without a model turn', { timeout: 60000 }, async t => {
+  const f = await setup(t); const proxy = await f.proxy();
+  await f.registerSender();
+  const body = 'Human-readable request scope marker.';
+  const encoded = 'SWITCHBOARD_COORDINATION_V1\n' + JSON.stringify({ version: 1,
+    note: { kind: 'request', owner: f.sender, artifact: 'abc123', checkpoint: 'before integration' }, body });
+  await f.postChannel('general', f.sender, encoded);
+  const pi = await f.launch({ env: { PI_AGENT_BUS_URL: proxy.url } });
+  await f.receiving(pi.cwd);
+  await waitFor(() => proxy.records.some(row => row.path.includes('/channels/cwd/messages') && row.ended), 'initial background windows fetched');
+  await freshTerminal(pi, () => pi.submit('/bus channels'), body);
+  assert.match(stripVTControlCharacters(pi.terminal()), /Reported claim:/);
+  pi.input('\x1b'); await delay(150);
+  await freshTerminal(pi, () => pi.submit('/bus channels --raw'), 'SWITCHBOARD_COORDINATION_V1');
+  pi.input('\x1b'); await delay(150);
+  assert.equal(f.modelProvider.requests.length, 0);
+  assert.equal((await pi.events()).filter(event => event.type === 'agent_start').length, 0);
 });
 
 test('channel post does not wake after an observed background read', { timeout: 90000 }, async t => {

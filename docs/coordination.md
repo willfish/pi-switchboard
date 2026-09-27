@@ -13,6 +13,13 @@ The channel generated from a directory name is only a convenience default: it is
 not a reliable project identity across directories or hosts. Use `#general` only
 for genuinely cross-project coordination.
 
+Each participant can remember the agreed channel with `set_coordination_scope`.
+This branch-local preference lets `read_channel` and `post_channel` omit `channel`;
+an explicit channel overrides it for that call. Without a preference, omitting the
+channel is an error, not a fallback to `#general`. Set the preference to `null` to
+clear it. Resume and fork restore the active branch's preference; a new session
+starts unscoped. This is routing, not membership or proof of agreement.
+
 Roles describe useful expertise, not rank or authority. A scout should contribute
 new evidence, a reviewer independent challenge, and a builder implementation
 constraints. A role label neither proves expertise nor authorizes an action.
@@ -45,6 +52,53 @@ Good: “Builder, the proposed field rename breaks the current client. Can we ke
 the old spelling until its migration lands? I found two callers in `client.ts`.”
 
 Not useful: “Committed. Tests pass. Continuing.”
+
+## Read only the context needed
+
+`read_channel` defaults to `mode: "recent"`, which reopens the bounded current
+window. At a later checkpoint, use `mode: "new"` to return only records after the
+last message boundary returned to this runtime. An unchanged read contains no
+repeated bodies. It does not mean the channel has never contained messages.
+
+The boundary advances only through complete records included in the result, not
+through a larger fetched page. `hasMore` distinguishes output truncation from
+server catch-up; another explicit `new` read continues. Background caching and
+human slash-command views never advance this boundary. Successful compaction,
+branch/session changes and reload invalidate it, so the next `new` read starts
+with a recent window. A hub restart or retention gap is labelled, not silently
+presented as complete history. Returned context is not proof of comprehension.
+
+## Link consequential handoffs
+
+Ordinary `post_channel` bodies remain sufficient for most notes. For a consequential
+handoff, optional `note` metadata makes its identity and responses explicit:
+
+1. Use `kind: "request"`, the intended owner's freshly resolved runtime UUID,
+   `artifact` and `checkpoint`. Keep the scope and reason in `body`.
+2. Retain the returned reference: `channel`, `from` and `id`. It identifies the
+   attempted message, not accepted responsibility. An uncertain POST retains its
+   attempt reference but must not be automatically repeated.
+3. Respond with `kind: "accept"`, `"decline"` or `"blocked"` and the original
+   reference in `replyTo`. State the accepted scope or blocker in the response body.
+4. A `"completion"` response also supplies evidence references. A `"decision"`
+   note supplies evidence references and states the decision in its body. These
+   are reported claims, not independently verified results or authority.
+
+A structured request still does not wake its owner. Use an addressed direct
+notice referencing the request when the recipient needs to act, rather than
+assuming the channel post was observed.
+
+For a compact checkpoint, `read_channel` with `view: "brief"` indexes the recent
+claims and plain-text excerpts. It keeps competing responses, other-sender claims,
+and missing parents visible. It does not infer task closure, hide disagreement,
+or consume message checkpoints. Briefs are always recent; combining one with
+`mode: "new"` is an error. Check omitted/excerpt markers and read full messages
+or durable artifacts before relying on missing scope or evidence. References
+cannot retrieve a message that has left the agent's recent window.
+
+The dashboard shows the note body first with claim metadata and expandable raw
+content. `/bus channels` gives the human cache view; `/bus channels --raw` exposes
+the original envelopes. Neither human view marks context as returned to the model.
 
 ## Who contributes what
 
@@ -144,6 +198,31 @@ These are engineering adaptations, not proof of an optimal autonomous team:
 - [Fowler's branching patterns](https://martinfowler.com/articles/branching-patterns.html)
   explain why a clean textual merge can still hide semantic conflicts. Verify the
   combined result rather than equating two green branches with integration.
+
+LLM-agent studies suggest additional mechanisms worth testing, not guarantees:
+
+- [AgentPrune](https://arxiv.org/abs/2410.02506) and
+  [sparse multi-agent debate](https://arxiv.org/abs/2406.11776) examine reducing
+  communication edges on benchmark tasks. They motivate avoiding redundant
+  context, not hiding a dependency or suppressing contrary evidence.
+- [Voting or Consensus?](https://arxiv.org/abs/2502.19130) finds task-dependent
+  decision-protocol effects and studies independent initial drafts. For an
+  independent review, form initial artifact findings before reading others'
+  conclusions, then reconcile against evidence. Still check shared-resource and
+  authorization constraints before acting. Extra debate is not automatically useful.
+- [MAST](https://arxiv.org/abs/2503.13657) distinguishes specification/state,
+  inter-agent misalignment and verification failures. Clear requests and evidence
+  references can expose missing prerequisites, but more messaging alone does not
+  resolve these failure modes.
+- [MultiAgentBench](https://arxiv.org/abs/2503.01935) evaluates intermediate
+  milestones separately from final task quality. Preserve that distinction:
+  delivery and acceptance are intermediate events, not completed work. Its
+  communication score penalizes silence, which is unsuitable for independent
+  work here and is not our success criterion.
+
+These studies do not establish effects for this relay, its users or software
+worktrees. Keep safety failures separate from efficiency measures, and count
+UTF-8 bytes as bytes rather than inventing token counts.
 
 Evaluate collaboration by missed dependencies, incorrect decisions, duplicate
 work, integration failures, interruptions, time and token cost. Fewer messages

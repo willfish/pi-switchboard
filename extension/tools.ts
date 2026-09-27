@@ -3,7 +3,8 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentBusRuntime } from "./runtime.ts";
 import { describeOutcome, formatAgentList } from "./commands.ts";
-import { CHANNEL_NAME, formatChannelPage, statusSummary, type ChannelSummary } from "./channels.ts";
+import { CHANNEL_NAME, formatChannelRead, statusSummary, type ChannelSummary, type ChannelPage } from "./channels.ts";
+import { encodeCoordinationNote, formatCoordinationBrief } from "./coordination-notes.ts";
 import {
   CHANNEL_LIST_DESCRIPTION,
   CHANNEL_POST_DESCRIPTION,
@@ -13,6 +14,9 @@ import {
   DIRECT_SEND_DESCRIPTION,
   formatCoordinationGuidance,
 } from "./coordination.ts";
+
+type ChannelReadDetails = { page: ChannelPage; view: "messages" | "brief"; checkpointConsumed: boolean;
+  returnedThrough?: string | null; outputTruncated?: boolean; serverCaughtUp?: boolean; hasMore?: boolean };
 
 const DIRECTORY_TEXT_BUDGET = 48 * 1024;
 const directoryEncoder = new TextEncoder();
@@ -139,21 +143,70 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
         details: { epoch: result.epoch, channels: result.channels },
       };
     } });
+  const channelFor = (channel: string | undefined): string => {
+    const resolved = channel === undefined ? runtime.coordinationScope() : channel;
+    if (resolved === null) throw new Error("Supply a channel or set an explicitly agreed coordination scope first.");
+    if (!CHANNEL_NAME.test(resolved)) throw new Error("invalid channel");
+    return resolved;
+  };
+  pi.registerTool({ name: "set_coordination_scope", label: "Coordination scope",
+    description: "Remember the explicitly agreed project channel on this session branch. Null clears the preference. This is routing, not project identity, membership, permission, or a message. It never wakes another agent.",
+    parameters: Type.Object({ channel: Type.Union([Type.String(), Type.Null()]) }),
+    async execute(_id, params, signal) {
+      if (signal?.aborted) throw new Error("cancelled");
+      const channel = runtime.setCoordinationScope(params.channel);
+      return { content: [{ type: "text", text: channel === null ? "Coordination scope cleared; supply explicit channels." : `Coordination scope: #${channel}. Routing preference only; no permission or message sent.` }], details: { channel } };
+    },
+  });
   pi.registerTool({ name: "read_channel", label: "Read channel", description: CHANNEL_READ_DESCRIPTION,
-    parameters: Type.Object({ channel: Type.String() }),
-    async execute(_id, params, signal) {
+    parameters: Type.Object({ channel: Type.Optional(Type.String()),
+      mode: Type.Optional(StringEnum(["recent", "new"] as const)),
+      view: Type.Optional(StringEnum(["messages", "brief"] as const)),
+    }),
+    async execute(_id, params, signal): Promise<{ content: { type: "text"; text: string }[]; details: ChannelReadDetails }> {
       if (signal?.aborted) throw new Error("cancelled");
-      if (!CHANNEL_NAME.test(params.channel)) throw new Error("invalid channel");
-      const result = await runtime.readChannel(params.channel, signal);
+      const channel = channelFor(params.channel);
+      const mode = params.mode ?? "recent";
+      const brief = params.view === "brief";
+      if (brief && mode === "new") throw new Error("A brief is always recent; omit mode:new.");
+      const id = runtime.runtimeId(), version = runtime.version();
+      const result = await runtime.readChannel(channel, signal, mode, !brief);
       if (result.status !== "ok") throw new Error(describeOutcome(result));
-      return { content: [{ type: "text", text: formatChannelPage(result.page) }], details: { page: result.page } };
+      const ticket = "ticket" in result ? result.ticket : undefined;
+      try {
+        if (signal?.aborted) throw new Error("cancelled");
+        if (!runtime.isCurrent(id, version)) throw new Error("runtime closed");
+        if (brief) return { content: [{ type: "text", text: formatCoordinationBrief(result.page) }], details: { page: result.page, view: "brief", checkpointConsumed: false } };
+        const formatted = formatChannelRead(result.page, { reset: "reset" in result && result.reset });
+        if (signal?.aborted || !runtime.isCurrent(id, version)) throw new Error("channel read invalidated");
+        if (ticket && (formatted.returnedThrough !== null || result.page.messages.length === 0)
+          && !runtime.commitChannelRead(ticket, result.page.epoch, formatted.returnedThrough)) throw new Error("channel read invalidated");
+        return { content: [{ type: "text", text: formatted.text }], details: { page: result.page, view: "messages", checkpointConsumed: !!ticket && formatted.returnedThrough !== null,
+          returnedThrough: formatted.returnedThrough, outputTruncated: formatted.outputTruncated,
+          serverCaughtUp: formatted.serverCaughtUp, hasMore: formatted.hasMore } };
+      } finally {
+        if (ticket) runtime.releaseChannelRead(ticket);
+      }
     } });
+  const reference = Type.Object({ channel: Type.String(), from: Type.String(), id: Type.String() },
+    { description: "Copy the original request's attempt reference, not its sequence or position." });
+  const evidence = Type.Array(Type.String(), { minItems: 1, maxItems: 4 });
+  const note = Type.Union([
+    Type.Object({ kind: Type.Literal("request"), owner: Type.String({ description: "Requested owner's fresh runtime UUID, not a role or label." }),
+      artifact: Type.String({ description: "Revision or artifact to act on." }), checkpoint: Type.String({ description: "Decision point for the requested response." }) }),
+    Type.Object({ kind: StringEnum(["accept", "decline", "blocked"] as const), replyTo: reference }),
+    Type.Object({ kind: Type.Literal("completion"), replyTo: reference, evidence }),
+    Type.Object({ kind: Type.Literal("decision"), evidence }),
+  ]);
   pi.registerTool({ name: "post_channel", label: "Post to channel", description: CHANNEL_POST_DESCRIPTION,
-    parameters: Type.Object({ channel: Type.String(), body: Type.String() }),
+    parameters: Type.Object({ channel: Type.Optional(Type.String()), body: Type.String({ description: "Scope/reason or response; visible in the brief." }), note: Type.Optional(note) }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error("cancelled");
-      const result = await runtime.postChannel(params.channel, params.body, signal);
-      return { content: [{ type: "text", text: result.status === "accepted" ? `accepted into #${params.channel}` : describeOutcome(result) }], details: result };
+      const channel = channelFor(params.channel);
+      const body = params.note === undefined ? params.body : encodeCoordinationNote(params.body, params.note);
+      const result = await runtime.postChannel(channel, body, signal);
+      const referenceText = "reference" in result ? `\nAttempt reference: ${JSON.stringify(result.reference)}` : "";
+      return { content: [{ type: "text", text: (result.status === "accepted" ? `accepted into #${channel}; storage is not acknowledgement or completion` : describeOutcome(result)) + referenceText }], details: result };
     } });
   pi.registerTool({ name: "update_channel_status", label: "Update channel status", description: "Optional sidebar presence, such as working or idle. This does not post to the channel and is not required. Do not narrate the task.",
     parameters: Type.Object({ channel: Type.Optional(Type.String()), summary: Type.Optional(Type.String()) }),

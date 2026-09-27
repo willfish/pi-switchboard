@@ -1,3 +1,5 @@
+import { renderCoordinationBody } from './coordination-notes.js';
+
 export const OPERATOR_ID = '00000000-0000-4000-8000-000000000001';
 const NAME = /^[a-z][a-z0-9-]{0,31}$/;
 const SEQ = /^(0|[1-9][0-9]{0,19})$/;
@@ -200,9 +202,7 @@ export function mountChannels(doc, session) {
       meta.className = 'slack-meta';
       meta.append(node('strong', who), node('span', messageTime(message.postedAt)));
       meta.lastChild.className = 'slack-time';
-      const text = node('p', message.body);
-      text.className = 'channel-note';
-      body.append(meta, text);
+      body.append(meta, renderCoordinationBody(doc, message.body, { channel: message.channel, from: message.from, id: message.id }));
       item.append(avatar, body);
       return item;
   }
