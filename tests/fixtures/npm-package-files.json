@@ -15,6 +15,7 @@
   "extension/commands.ts",
   "extension/coordination-notes.ts",
   "extension/coordination.ts",
+  "extension/herdr-tab.ts",
   "extension/inbox.ts",
   "extension/index.ts",
   "extension/operator-announcer.ts",

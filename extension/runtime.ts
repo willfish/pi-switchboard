@@ -8,6 +8,7 @@ import { describeOutcome, formatAgentList } from "./commands.ts";
 import { createAnnouncer } from './operator-announcer.ts';
 import { isWorkSnapshot, normalizeWorkReport, type WorkSnapshot } from './operator-protocol.ts';
 import type { OperatorBinding, OperatorPermissions } from './operator-binding.ts';
+import { nameUnlabelledTab } from './herdr-tab.ts';
 import { createOperatorBridge, bridgeCapabilities } from './operator-bridge.ts';
 import { areaChannel, formatChannelHumanPage, statusSummary, CHANNEL_NAME } from './channels.ts';
 import {
@@ -23,6 +24,7 @@ export type AgentBusDeps = {
   now?: () => number; wallNow?: () => number; random?: () => number;
   hostname?: () => string; cwd?: () => string; pid?: () => number;
   timers?: Timers; subscribe?: typeof subscribeOnce;
+  nameTab?: typeof nameUnlabelledTab;
 };
 export const LABEL_ENTRY = "agent-bus-label";
 export const WORK_ENTRY = 'agent-bus-work';
@@ -95,6 +97,7 @@ type Run = {
   operatorConfirmation?: AbortController; operatorConsentGeneration: number;
   channelSummary?: string; lastChannelSync: number; lastStatusPut: number; channelBusy: boolean; channelDirty: boolean;
   coordinationScope: string | null; scopeRevision: number; readState: ChannelReadState; operatorCache: OperatorCache;
+  tabLabelAttempted?: string;
 };
 
 export function createRuntime(deps: AgentBusDeps) {
@@ -202,6 +205,15 @@ export function createRuntime(deps: AgentBusDeps) {
         if (r.client.isUnauthorized()) { stopUnauthorized(r); return; }
         if (result.status === "ok") {
           r.lastPut = now(); r.error = undefined;
+          const tabLabel = doc.label as string;
+          const sessionName = projectName(deps.pi?.getSessionName() ?? '');
+          // Do not turn the generic cwd fallback into a permanent Herdr tab name.
+          const distinctName = sessionName && sessionName !== projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
+          if (r.ctx.mode === 'tui' && (r.explicitLabel || r.work.objective || distinctName) &&
+              r.label === tabLabel && r.tabLabelAttempted !== tabLabel) {
+            r.tabLabelAttempted = tabLabel;
+            void (deps.nameTab ?? nameUnlabelledTab)(tabLabel, env).catch(() => {});
+          }
           cancelTimer(r, "lease");
           r.lease = timers.setTimeout(() => { r.lease = undefined; if (online(r)) refreshHealth(r); }, 15000);
           if (!r.stream) openStream(r);

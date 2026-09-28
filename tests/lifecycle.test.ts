@@ -143,6 +143,20 @@ it("branch labels use latest matching entry.data, automatic names are separate a
   await f.runtime.sessionShutdown();
 });
 
+it('names a numbered Herdr tab only after a meaningful label registers, once per label', async () => {
+  const labels: string[] = [];
+  const f = fixture({ env: { PI_AGENT_BUS_TOKEN: 'synthetic', HERDR_ENV: '1',
+    HERDR_SOCKET_PATH: '/synthetic/herdr.sock', HERDR_PANE_ID: 'w1:p1' },
+    nameTab: async (label: string) => { labels.push(label); } });
+  f.runtime.sessionStart({}, f.ctx); await flush();
+  assert.deepEqual(labels, []); // The cwd fallback is not a work label.
+  f.runtime.setLabel('Updating search dashboard'); await flush();
+  assert.deepEqual(labels, ['Updating search dashboard']);
+  await f.clock.advance(5000);
+  assert.deepEqual(labels, ['Updating search dashboard']);
+  await f.runtime.sessionShutdown();
+});
+
 it("current model, null and invalid model semantics preserve runtime ID and never leak identity extras", async () => {
   const f = fixture(); const ctx = context();
   f.runtime.sessionStart({}, ctx); await flush(); const id = f.runtime.runtimeId();
