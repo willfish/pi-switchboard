@@ -4,17 +4,17 @@ import { randomUUID } from 'node:crypto';
 type Environment = Record<string, string | undefined>;
 type Call = (method: string, params: Record<string, string>) => Promise<unknown>;
 
-/** Herdr's API has no conditional rename, so only rename a tab which still displays its number. */
+/** Herdr shows a visible index, not tab.number. Rename only a purely numeric label. */
 export async function nameUnlabelledTab(label: string, env: Environment, call: Call = (method, params) =>
   herdrCall(env.HERDR_SOCKET_PATH!, method, params)): Promise<void> {
   if (env.HERDR_ENV !== '1' || !env.HERDR_SOCKET_PATH || !env.HERDR_PANE_ID || !label) return;
   const paneResult = await call('pane.get', { pane_id: env.HERDR_PANE_ID }) as { pane?: { tab_id?: unknown } };
   const tabId = paneResult?.pane?.tab_id;
   if (typeof tabId !== 'string') return;
-  const tabResult = await call('tab.get', { tab_id: tabId }) as { tab?: { number?: unknown; label?: unknown } };
-  const tab = tabResult?.tab;
-  if (!tab || !Number.isSafeInteger(tab.number) || tab.label !== String(tab.number)) return;
-  await call('tab.rename', { tab_id: tabId, label: `${tab.number} ${label}` });
+  const tabResult = await call('tab.get', { tab_id: tabId }) as { tab?: { label?: unknown } };
+  const shown = tabResult?.tab?.label;
+  if (typeof shown !== 'string' || !/^[0-9]+$/.test(shown)) return;
+  await call('tab.rename', { tab_id: tabId, label: `${shown} ${label}` });
 }
 
 function herdrCall(socketPath: string, method: string, params: Record<string, string>): Promise<unknown> {

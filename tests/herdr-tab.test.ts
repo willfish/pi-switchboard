@@ -8,27 +8,27 @@ import { join } from 'node:path';
 
 const env = { HERDR_ENV: '1', HERDR_SOCKET_PATH: '/synthetic/herdr.sock', HERDR_PANE_ID: 'w1:p2' };
 
-test('renames only the tab containing this pane and keeps its number', async () => {
+test('renames a purely numeric tab and keeps the displayed number', async () => {
   const calls: Array<[string, Record<string, string>]> = [];
   await nameUnlabelledTab('Updating search dashboard', env, async (method, params) => {
     calls.push([method, params]);
     if (method === 'pane.get') return { pane: { tab_id: 'w1:t1' } };
-    if (method === 'tab.get') return { tab: { number: 1, label: '1' } };
-    return { tab: { label: '1 Updating search dashboard' } };
+    if (method === 'tab.get') return { tab: { number: 26, label: '3' } };
+    return { tab: { label: '3 Updating search dashboard' } };
   });
   assert.deepEqual(calls, [
     ['pane.get', { pane_id: 'w1:p2' }],
     ['tab.get', { tab_id: 'w1:t1' }],
-    ['tab.rename', { tab_id: 'w1:t1', label: '1 Updating search dashboard' }],
+    ['tab.rename', { tab_id: 'w1:t1', label: '3 Updating search dashboard' }],
   ]);
 });
 
-test('preserves a manually named tab and a tab already named by the agent', async () => {
-  for (const label of ['My work', '1 Updating search dashboard']) {
+test('leaves a tab with no number or with number plus text', async () => {
+  for (const label of ['', 'binds', '1 binds', '1 Updating search dashboard']) {
     const calls: string[] = [];
     await nameUnlabelledTab('New task', env, async (method) => {
       calls.push(method);
-      return method === 'pane.get' ? { pane: { tab_id: 'w1:t1' } } : { tab: { number: 1, label } };
+      return method === 'pane.get' ? { pane: { tab_id: 'w1:t1' } } : { tab: { number: 26, label } };
     });
     assert.deepEqual(calls, ['pane.get', 'tab.get']);
   }
