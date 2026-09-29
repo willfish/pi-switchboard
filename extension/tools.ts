@@ -96,7 +96,7 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
   });
   const nullableText = () => Type.Union([Type.String(), Type.Null()]);
   pi.registerTool({ name: 'report_work', label: 'Report work',
-    description: 'Record explicit work metadata for the console. Prefer a stable UUID workId; other ids map to a stable UUID. Use null for unknown fields. Missing fields, empty strings and extra keys are ignored. No credentials, hidden reasoning or raw tool output. This reports work; it does not grant permissions or prove completion.',
+    description: 'Record explicit work metadata for the console. Prefer a stable UUID workId; other ids map to a stable UUID. Use null for unknown fields. Missing fields, empty strings and extra keys are ignored. Optional label is a concise single-line summary of at most 60 code points, verb plus object, for Herdr tabs and bus presence. Do not put the full objective or ask there. No credentials, hidden reasoning or raw tool output. This reports work; it does not grant permissions or prove completion.',
     parameters: Type.Object({
       workId: Type.Optional(nullableText()), objective: Type.Optional(nullableText()),
       phase: Type.Optional(Type.Union([Type.String(), Type.Null()])),
@@ -105,10 +105,11 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       project: Type.Optional(nullableText()), repository: Type.Optional(nullableText()), branch: Type.Optional(nullableText()), worktree: Type.Optional(nullableText()),
       parentWorkId: Type.Optional(nullableText()), delegatedWorkId: Type.Optional(nullableText()),
       evidence: Type.Optional(Type.Array(Type.Object({ kind: Type.String(), ref: Type.String() }), { maxItems: 8 })),
+      label: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error('cancelled');
-      const work = runtime.reportWork(params);
+      const work = runtime.reportWork(params, params.label);
       if (typeof work === 'string') throw new Error(work);
       return { content: [{ type: 'text', text: 'Work report recorded locally. Console synchronization is separate from this acknowledgement.' }], details: { work } };
     },
@@ -125,7 +126,7 @@ export function bindTools(pi: ExtensionAPI, runtime: AgentBusRuntime): void {
       if (result.status !== "ok") throw new Error(describeOutcome(result));
       return { content: [{ type: "text", text: formatAgentList(result.agents, id ?? "") }], details: { agents: result.agents } };
     } });
-  pi.registerTool({ name: "set_agent_label", label: "Set agent label", description: "Set a nonempty, single-line work label, at most 200 Unicode code points. Cannot clear labels or enable peer control.",
+  pi.registerTool({ name: "set_agent_label", label: "Set agent label", description: "Set a nonempty, single-line work label, at most 200 Unicode code points. Prefer at most 60: bus presence condenses longer labels, and Herdr tabs show at most 48. Cannot clear labels or enable peer control.",
     parameters: Type.Object({ label: Type.String() }),
     async execute(_id, params, signal) {
       if (signal?.aborted) throw new Error("cancelled");

@@ -137,6 +137,7 @@ to a cached or substitute target.
 Model tools: `list_agents`, `set_agent_label`, `send_agent_message`,
 `report_work`, `list_channels`, `read_channel`, `post_channel`,
 `update_channel_status`, `get_coordination_guidance`, `set_coordination_scope`.
+`report_work` may include a concise `label` of at most 60 code points. Herdr tabs and bus presence show that summary, or a condensed objective, not the full goal text.
 None of them enable consent. An explicit branch-local scope supplies the default
 channel. Reads default to recent history; `mode: "new"` avoids repeating returned
 message context. Optional linked notes and `view: "brief"` expose handoff claims

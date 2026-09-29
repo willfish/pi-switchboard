@@ -40,7 +40,7 @@ test('work tool maps slug ids and labels folder-only sessions from the objective
     assert.equal(stored.objective, 'Review PR 1453');
     assert.equal(runtime.label(), 'Review PR 1453');
     assert.equal(result.details.work.workId, stored.workId);
-    assert.deepEqual(sdk.entries.find(entry => entry.type === 'agent-bus-label'), { type: 'agent-bus-label', data: { label: 'Review PR 1453' } });
+    assert.equal(sdk.entries.some(entry => entry.type === 'agent-bus-label'), false);
   } finally { await runtime.sessionShutdown(); }
 });
 
@@ -55,5 +55,27 @@ test('work tool does not replace an explicit session name with the objective', a
     await tool.execute('call', { workId: 'pr-1453-review', objective: 'Review PR 1453' }, undefined);
     assert.equal(runtime.label(), 'Named session');
     assert.equal(sdk.entries.some(entry => entry.type === 'agent-bus-label'), false);
+  } finally { await runtime.sessionShutdown(); }
+});
+
+test('work tool prefers a short label and condenses a long objective instead of copying it', async () => {
+  const sdk = host(), clock = new Clock();
+  const runtime = createAgentBusExtension({ pi: sdk.pi, uuid: () => agentA, cwd: () => '/tmp/work',
+    env: { PI_AGENT_BUS_TOKEN: 'synthetic' }, timers: clock, now: () => clock.time,
+    subscribe: dormantSubscribe, fetch: async () => response() });
+  runtime.sessionStart({}, context()); await flush();
+  try {
+    const tool = sdk.tools.get('report_work'); assert.ok(tool);
+    const objective = 'Can you please review a good labeller solution for simplifying asks and setting labels in herdr tabs and in the bus so it is an efficient summary rather than the entire goal text of a given session';
+    await tool.execute('call', { objective }, undefined);
+    assert.equal(runtime.currentWork().objective, objective);
+    assert.equal(runtime.label(), 'review a good labeller solution for simplifying asks');
+    assert.ok(!runtime.label().includes('entire goal text'));
+    sdk.setName('Named session');
+    await tool.execute('call', { objective, label: 'I want you to shorten herdr and bus labels' }, undefined);
+    assert.equal(runtime.label(), 'shorten herdr and bus labels');
+    assert.deepEqual(sdk.entries.find(entry => entry.type === 'agent-bus-label'), { type: 'agent-bus-label', data: { label: 'shorten herdr and bus labels' } });
+    await tool.execute('call', { objective, label: 'replace the short label' }, undefined);
+    assert.equal(runtime.label(), 'shorten herdr and bus labels');
   } finally { await runtime.sessionShutdown(); }
 });

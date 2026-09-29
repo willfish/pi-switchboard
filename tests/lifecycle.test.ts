@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { createAgentBusExtension } from "../extension/index.ts";
-import { projectName, retryDelay } from "../extension/runtime.ts";
+import { condenseLabel, projectName, retryDelay, TAB_LABEL_MAX } from "../extension/runtime.ts";
 import { agentA, agentB, context, dormantSubscribe, flush, response, Clock, host, sync, discovery } from "./client-test-helpers.ts";
 import type { subscribeOnce } from "../extension/sse.ts";
 
@@ -154,6 +154,22 @@ it('names a numbered Herdr tab only after a meaningful label registers, once per
   assert.deepEqual(labels, ['Updating search dashboard']);
   await f.clock.advance(5000);
   assert.deepEqual(labels, ['Updating search dashboard']);
+  await f.runtime.sessionShutdown();
+});
+
+it('condenses a long ask for bus presence and the Herdr tab', async () => {
+  const labels: string[] = [];
+  const f = fixture({ env: { PI_AGENT_BUS_TOKEN: 'synthetic', HERDR_ENV: '1',
+    HERDR_SOCKET_PATH: '/synthetic/herdr.sock', HERDR_PANE_ID: 'w1:p1' },
+    nameTab: async (label: string) => { labels.push(label); } });
+  f.runtime.sessionStart({}, f.ctx); await flush();
+  const objective = 'Can you please review a good labeller solution for simplifying asks and setting labels in herdr tabs and in the bus so it is an efficient summary rather than the entire goal text of a given session';
+  f.runtime.reportWork({ objective }); await flush();
+  assert.equal(f.puts.at(-1).label, 'review a good labeller solution for simplifying asks');
+  assert.equal(labels.length, 1);
+  assert.equal(labels[0], condenseLabel(f.puts.at(-1).label, TAB_LABEL_MAX));
+  assert.ok(Array.from(labels[0]).length <= TAB_LABEL_MAX);
+  assert.equal(labels[0]?.includes('entire goal text'), false);
   await f.runtime.sessionShutdown();
 });
 

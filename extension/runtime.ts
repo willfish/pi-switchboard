@@ -55,6 +55,61 @@ export function validateLabel(text: string): string | undefined {
   const value = text.trim();
   return value && !Array.from(value).some(char => /^[\ud800-\udfff]$/.test(char)) && !/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(value) && Array.from(value).length <= 200 ? value : undefined;
 }
+export const LABEL_SUMMARY_MAX = 60;
+export const TAB_LABEL_MAX = 48;
+const LABEL_WRAPPERS = [
+  /^(?:please\s+)?(?:can|could|would|will)\s+you\s+(?:please\s+)?/i,
+  /^i(?:'d|\s+would)\s+like\s+(?:you\s+)?to\s+/i,
+  /^i\s+want\s+(?:you\s+)?to\s+/i,
+  /^i\s+need\s+(?:you\s+)?to\s+/i,
+  /^(?:please\s+)?help\s+me\s+(?:to\s+)?/i,
+  /^we\s+need\s+to\s+/i,
+  /^let(?:'s|\s+us)\s+/i,
+];
+const LABEL_TRAILING = new Set(["a", "an", "and", "or", "the", "to", "for", "of", "in", "on", "with", "so"]);
+
+/** First clause, then a word-boundary cap. Display only; work snapshots stay full. */
+export function clipLabel(text: string, max = LABEL_SUMMARY_MAX): string | undefined {
+  if (typeof text !== "string") return;
+  let value = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
+  let cut = -1;
+  for (const match of value.matchAll(/[.!?;]/g)) {
+    if ((match.index ?? 0) >= 12) { cut = match.index ?? 0; break; }
+  }
+  if (cut >= 12) value = value.slice(0, cut).trim();
+  const chars = Array.from(value);
+  let clipped = chars.length > max;
+  if (clipped) {
+    value = chars.slice(0, max).join("");
+    const space = value.lastIndexOf(" ");
+    if (space >= Math.ceil(max * 0.6)) value = value.slice(0, space);
+    value = value.replace(/[\s,;:.!?-]+$/u, "").trim();
+  }
+  if (clipped) {
+    const words = value.split(" ");
+    while (words.length > 2 && LABEL_TRAILING.has(words[words.length - 1]!.toLowerCase())) words.pop();
+    value = words.join(" ");
+  }
+  if (!value || Array.from(value).some(char => /^[\ud800-\udfff]$/.test(char)) || Array.from(value).length < 2) return;
+  return value;
+}
+
+/** Strip a conversational ask, then clip. Short manual labels should use clipLabel. */
+export function condenseLabel(text: string, max = LABEL_SUMMARY_MAX): string | undefined {
+  if (typeof text !== "string") return;
+  let value = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
+  let previous = "";
+  while (value && value !== previous) {
+    previous = value;
+    for (const pattern of LABEL_WRAPPERS) value = value.replace(pattern, "").trim();
+  }
+  return clipLabel(value, max);
+}
+
+function publishedLabel(text: string): string {
+  if (Array.from(text).length <= LABEL_SUMMARY_MAX) return text;
+  return condenseLabel(text) ?? clipLabel(text) ?? text;
+}
 export function restoreLabel(ctx: ExtensionContext): string | undefined {
   const entries = ctx.sessionManager.getBranch();
   for (let i = entries.length - 1; i >= 0; i--) {
@@ -160,7 +215,8 @@ export function createRuntime(deps: AgentBusDeps) {
     const folder = projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
     r.projectedName = session || folder || "Pi session";
     const generic = !session || session === folder;
-    r.label = r.explicitLabel ?? (generic ? taskLabel(r.work) : undefined) ?? r.projectedName;
+    const explicit = r.explicitLabel ? publishedLabel(r.explicitLabel) : undefined;
+    r.label = explicit ?? (generic ? taskLabel(r.work) : undefined) ?? r.projectedName;
     const doc = { agentId: r.id, sessionId: r.sessionId, host: deps.hostname?.() ?? "unknown",
       cwd: deps.cwd?.() ?? r.ctx.cwd, sessionName: r.projectedName, label: r.label,
       model: r.model,
@@ -206,13 +262,14 @@ export function createRuntime(deps: AgentBusDeps) {
         if (result.status === "ok") {
           r.lastPut = now(); r.error = undefined;
           const tabLabel = doc.label as string;
+          const shown = clipLabel(tabLabel, TAB_LABEL_MAX);
           const sessionName = projectName(deps.pi?.getSessionName() ?? '');
           // Do not turn the generic cwd fallback into a permanent Herdr tab name.
           const distinctName = sessionName && sessionName !== projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
-          if (r.ctx.mode === 'tui' && (r.explicitLabel || r.work.objective || distinctName) &&
-              r.label === tabLabel && r.tabLabelAttempted !== tabLabel) {
-            r.tabLabelAttempted = tabLabel;
-            void (deps.nameTab ?? nameUnlabelledTab)(tabLabel, env).catch(() => {});
+          if (shown && r.ctx.mode === 'tui' && (r.explicitLabel || r.work.objective || distinctName) &&
+              r.label === tabLabel && r.tabLabelAttempted !== shown) {
+            r.tabLabelAttempted = shown;
+            void (deps.nameTab ?? nameUnlabelledTab)(shown, env).catch(() => {});
           }
           cancelTimer(r, "lease");
           r.lease = timers.setTimeout(() => { r.lease = undefined; if (online(r)) refreshHealth(r); }, 15000);
@@ -296,8 +353,12 @@ export function createRuntime(deps: AgentBusDeps) {
     deliverControl(r, claimed.control);
   }
   function taskLabel(work: WorkSnapshot): string | undefined {
-    const text = [work.objective, work.currentStep].filter((part): part is string => !!part).join(": ");
-    return text ? validateLabel(Array.from(text).slice(0, 200).join("")) : undefined;
+    const objective = work.objective ? condenseLabel(work.objective) : undefined;
+    const step = work.currentStep ? condenseLabel(work.currentStep, 40) : undefined;
+    if (!objective) return step ? validateLabel(step) : undefined;
+    if (!step || step === objective) return validateLabel(objective);
+    const joined = `${objective}: ${step}`;
+    return validateLabel(Array.from(joined).length <= LABEL_SUMMARY_MAX ? joined : objective);
   }
   function publishPromptWork(r: Run, text: string) {
     if (text.startsWith("Agent bus ") || text.startsWith("[Network-authorized operator")) return;
@@ -524,7 +585,7 @@ export function createRuntime(deps: AgentBusDeps) {
       r.explicitLabel = label; r.channelDirty = true; metadata(r); requestPut(r); return r.label;
     },
     label: () => current?.label ?? "agent bus unavailable",
-    reportWork(work: unknown): WorkSnapshot | string {
+    reportWork(work: unknown, label?: unknown): WorkSnapshot | string {
       const r = current;
       if (!r || !active(r)) return 'agent bus unavailable';
       const captured = normalizeWorkReport(work);
@@ -532,18 +593,14 @@ export function createRuntime(deps: AgentBusDeps) {
       const stored = structuredClone(captured);
       deps.pi?.appendEntry(WORK_ENTRY, { work: stored });
       r.work = stored;
-      if (!r.explicitLabel && stored.objective) {
-        const folder = projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
-        const session = projectName(deps.pi?.getSessionName() ?? "");
-        if (!session || session === folder) {
-          const label = validateLabel(Array.from(stored.objective).slice(0, 200).join(""));
-          if (label) {
-            deps.pi?.appendEntry(LABEL_ENTRY, { label });
-            r.explicitLabel = label;
-          }
+      if (!r.explicitLabel && typeof label === "string") {
+        const authored = validateLabel(condenseLabel(label) ?? "");
+        if (authored) {
+          deps.pi?.appendEntry(LABEL_ENTRY, { label: authored });
+          r.explicitLabel = authored;
         }
       }
-      r.channelDirty = true; requestPut(r);
+      r.channelDirty = true; metadata(r); requestPut(r);
       return structuredClone(stored);
     },
     currentWork: () => current ? structuredClone(current.work) : emptyWork(),
