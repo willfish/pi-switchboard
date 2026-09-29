@@ -18,7 +18,8 @@ export async function provider() {
       }
       const payload = JSON.parse(body);
       requests.push(payload);
-      const script = scripts.shift() ?? {};
+      const labelRequest = payload.messages?.some(message => message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('Name a coding session for a narrow terminal tab'));
+      const script = labelRequest ? { text: '{"label":"Repair parser semantics"}' } : scripts.shift() ?? {};
       const reply = () => {
         held.delete(reply);
         if (res.destroyed) return;

@@ -123,7 +123,7 @@ async function setup(t, { operator = false, hub: startHub = true } = {}) {
     return { status: response.status, body: await response.json() };
   }
   let count = 0;
-  async function launch({ env: extraEnv = {}, args = [], session, settings = {} } = {}) {
+  async function launch({ env: extraEnv = {}, args = [], session, settings = {}, skills = [] } = {}) {
     const root = join(home, `pi-${++count}`); const agentDir = join(root, 'agent');
     const cwd = join(root, 'cwd'); const eventsFile = join(root, 'events.jsonl'); const controlFile = join(root, 'control.json');
     await mkdir(join(agentDir, 'extensions'), { recursive: true }); await mkdir(cwd);
@@ -172,7 +172,7 @@ async function setup(t, { operator = false, hub: startHub = true } = {}) {
       }
     });
     const command = value => child.stdin.write(JSON.stringify(value) + '\n');
-    command({ op: 'start', argv: [piExecutable, '--no-context-files', '--no-skills', '--no-prompt-templates',
+    command({ op: 'start', argv: [piExecutable, '--no-context-files', ...(skills.length ? skills.flatMap(path => ['--skill', path]) : ['--no-skills']), '--no-prompt-templates',
       '--no-builtin-tools', '--no-approve', ...(session ? ['--session', session] : []), ...args],
       cwd, env: childEnv, rows: 32, cols: 120 });
     const stop = async () => {
@@ -1095,6 +1095,49 @@ for (const [name, args] of [
     assert.equal(attempts, 0, 'shutdown makes no bus request either');
   });
 }
+
+test('actual Pi silently labels skill intent and updates the caller tab without exposing skill markup', { timeout: 60000 }, async t => {
+  const f = await setup(t);
+  const skill = join(f.home, 'label-skill.md');
+  await writeFile(skill, '---\nname: fixture-label\ndescription: Synthetic parser workflow\n---\nPRIVATE_SKILL_BODY_MARKER: inspect the parser before changing it.\n');
+  const socketPath = join(f.home, 'herdr.sock');
+  let tabLabel = '2'; const writes = [];
+  const pane = { pane_id: 'w1:p1', tab_id: 'w1:t2', workspace_id: 'w1' };
+  const socketServer = createServer(socket => {
+    let input = '';
+    socket.on('data', chunk => {
+      input += chunk.toString(); if (!input.includes('\n')) return;
+      const request = JSON.parse(input.slice(0, input.indexOf('\n')));
+      let result;
+      if (request.method === 'pane.get') result = { pane };
+      else if (request.method === 'pane.list') result = { panes: [pane, { pane_id: 'w1:p2', tab_id: 'w1:t2', workspace_id: 'w1' }] };
+      else if (request.method === 'tab.get') result = { tab: { label: tabLabel } };
+      else if (request.method === 'tab.rename') { writes.push(request.params); tabLabel = request.params.label; result = { tab: { label: tabLabel } }; }
+      else throw new Error(`unexpected Herdr method ${request.method}`);
+      socket.write(`${JSON.stringify({ id: request.id, result })}\n`);
+    });
+  });
+  await new Promise(resolve => socketServer.listen(socketPath, resolve));
+  t.after(() => new Promise(resolve => socketServer.close(resolve)));
+  const pi = await f.launch({ skills: [skill], env: { PI_AGENT_BUS_LABEL_MODEL: 'fixture/fixture-a',
+    HERDR_ENV: '1', HERDR_SOCKET_PATH: socketPath, HERDR_PANE_ID: 'w1:p1', HERDR_TAB_ID: 'wrong-focused-tab' } });
+  await pi.submit('/skill:fixture-label Repair the VAT parser semantics');
+  await waitFor(async () => (await f.agents()).some(agent => agent.cwd === pi.cwd && agent.label === 'Repair parser semantics'), 'semantic label in actual bus presence');
+  await waitFor(() => tabLabel === '2 Repair parser semantics', 'semantic label in caller tab');
+  const labels = () => f.modelProvider.requests.filter(request => request.messages?.some(message => message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('Name a coding session for a narrow terminal tab')));
+  assert.equal(labels().length, 1);
+  assert.ok(f.modelProvider.requests.some(request => JSON.stringify(request).includes('PRIVATE_SKILL_BODY_MARKER')), 'Pi actually expanded the skill for its main request');
+  assert.doesNotMatch(JSON.stringify(labels()[0]), /PRIVATE_SKILL_BODY_MARKER|<skill|location=/);
+  assert.equal(labels()[0].tools?.length ?? 0, 0, 'silent model has no tools');
+  assert.deepEqual(writes[0], { tab_id: 'w1:t2', label: '2 Repair parser semantics' });
+  await pi.submit('/label Manual parser work');
+  await waitFor(async () => (await f.agents()).some(agent => agent.cwd === pi.cwd && agent.label === 'Manual parser work'), 'manual override');
+  await waitFor(() => tabLabel === '2 Manual parser work', 'owned tab follows explicit override');
+  await pi.submit('carry on'); await delay(1000);
+  assert.equal(labels().length, 1, 'routine continuation does not spend another label request');
+  assert.doesNotMatch(stripVTControlCharacters(pi.terminal()), /failed to load|error loading|extension error/i);
+  await pi.quit();
+});
 
 for (const [name, options] of [
   ['disabled', { env: { PI_AGENT_BUS_ENABLED: '0' } }],

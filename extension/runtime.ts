@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, MessageStartEvent } from "@earendil-works/pi-coding-agent";
+import { createHash } from 'node:crypto';
 import { createHubClient, type FetchLike, type HubClient, type Timers } from "./client.ts";
 import { subscribeOnce, type BusFrame } from "./sse.ts";
 import { createPresenceState, reducePresence, type PresenceState } from "./presence.ts";
@@ -8,7 +9,8 @@ import { describeOutcome, formatAgentList } from "./commands.ts";
 import { createAnnouncer } from './operator-announcer.ts';
 import { isWorkSnapshot, normalizeWorkReport, type WorkSnapshot } from './operator-protocol.ts';
 import type { OperatorBinding, OperatorPermissions } from './operator-binding.ts';
-import { nameUnlabelledTab } from './herdr-tab.ts';
+import { HERDR_LABEL_ENTRY, nameUnlabelledTab, type TabOwnership } from './herdr-tab.ts';
+import { AUTO_LABEL_ENTRY, createLabelQueue, labelAim, parseLabelResponse, summarizeLabel, type LabelAim } from './labelling.ts';
 import { createOperatorBridge, bridgeCapabilities } from './operator-bridge.ts';
 import { areaChannel, formatChannelHumanPage, statusSummary, CHANNEL_NAME } from './channels.ts';
 import {
@@ -25,6 +27,7 @@ export type AgentBusDeps = {
   hostname?: () => string; cwd?: () => string; pid?: () => number;
   timers?: Timers; subscribe?: typeof subscribeOnce;
   nameTab?: typeof nameUnlabelledTab;
+  summarizeLabel?: typeof summarizeLabel;
 };
 export const LABEL_ENTRY = "agent-bus-label";
 export const WORK_ENTRY = 'agent-bus-work';
@@ -54,61 +57,6 @@ export function projectName(text: string): string {
 export function validateLabel(text: string): string | undefined {
   const value = text.trim();
   return value && !Array.from(value).some(char => /^[\ud800-\udfff]$/.test(char)) && !/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(value) && Array.from(value).length <= 200 ? value : undefined;
-}
-export const LABEL_SUMMARY_MAX = 60;
-export const TAB_LABEL_MAX = 48;
-const LABEL_WRAPPERS = [
-  /^(?:please\s+)?(?:can|could|would|will)\s+you\s+(?:please\s+)?/i,
-  /^i(?:'d|\s+would)\s+like\s+(?:you\s+)?to\s+/i,
-  /^i\s+want\s+(?:you\s+)?to\s+/i,
-  /^i\s+need\s+(?:you\s+)?to\s+/i,
-  /^(?:please\s+)?help\s+me\s+(?:to\s+)?/i,
-  /^we\s+need\s+to\s+/i,
-  /^let(?:'s|\s+us)\s+/i,
-];
-const LABEL_TRAILING = new Set(["a", "an", "and", "or", "the", "to", "for", "of", "in", "on", "with", "so"]);
-
-/** First clause, then a word-boundary cap. Display only; work snapshots stay full. */
-export function clipLabel(text: string, max = LABEL_SUMMARY_MAX): string | undefined {
-  if (typeof text !== "string") return;
-  let value = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
-  let cut = -1;
-  for (const match of value.matchAll(/[.!?;]/g)) {
-    if ((match.index ?? 0) >= 12) { cut = match.index ?? 0; break; }
-  }
-  if (cut >= 12) value = value.slice(0, cut).trim();
-  const chars = Array.from(value);
-  let clipped = chars.length > max;
-  if (clipped) {
-    value = chars.slice(0, max).join("");
-    const space = value.lastIndexOf(" ");
-    if (space >= Math.ceil(max * 0.6)) value = value.slice(0, space);
-    value = value.replace(/[\s,;:.!?-]+$/u, "").trim();
-  }
-  if (clipped) {
-    const words = value.split(" ");
-    while (words.length > 2 && LABEL_TRAILING.has(words[words.length - 1]!.toLowerCase())) words.pop();
-    value = words.join(" ");
-  }
-  if (!value || Array.from(value).some(char => /^[\ud800-\udfff]$/.test(char)) || Array.from(value).length < 2) return;
-  return value;
-}
-
-/** Strip a conversational ask, then clip. Short manual labels should use clipLabel. */
-export function condenseLabel(text: string, max = LABEL_SUMMARY_MAX): string | undefined {
-  if (typeof text !== "string") return;
-  let value = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").replace(/\s+/g, " ").trim();
-  let previous = "";
-  while (value && value !== previous) {
-    previous = value;
-    for (const pattern of LABEL_WRAPPERS) value = value.replace(pattern, "").trim();
-  }
-  return clipLabel(value, max);
-}
-
-function publishedLabel(text: string): string {
-  if (Array.from(text).length <= LABEL_SUMMARY_MAX) return text;
-  return condenseLabel(text) ?? clipLabel(text) ?? text;
 }
 export function restoreLabel(ctx: ExtensionContext): string | undefined {
   const entries = ctx.sessionManager.getBranch();
@@ -140,6 +88,7 @@ type Run = {
   generation: number; ctx: ExtensionContext; id: string; sessionId: string; client: HubClient;
   baseUrl: string; token: string; abort: AbortController; lifetime: AbortController; stream?: AbortController;
   closed: boolean; unauthorized: boolean; busy: boolean; explicitLabel?: string;
+  autoLabel?: string; autoAimKey?: string; labeller?: ReturnType<typeof createLabelQueue>;
   model: Agent["model"]; projectedName: string; label: string; invalidMetadata: boolean; putBusy: boolean; dirty: boolean;
   retry?: unknown; heartbeat?: unknown; lease?: unknown; burst?: unknown; arrivals: number; warnings: number;
   attempt: number; lastPut: number; healthySince?: number; presence: PresenceState;
@@ -152,7 +101,7 @@ type Run = {
   operatorConfirmation?: AbortController; operatorConsentGeneration: number;
   channelSummary?: string; lastChannelSync: number; lastStatusPut: number; channelBusy: boolean; channelDirty: boolean;
   coordinationScope: string | null; scopeRevision: number; readState: ChannelReadState; operatorCache: OperatorCache;
-  tabLabelAttempted?: string;
+  tabOwnership?: TabOwnership; tabSyncBusy?: boolean;
 };
 
 export function createRuntime(deps: AgentBusDeps) {
@@ -215,8 +164,7 @@ export function createRuntime(deps: AgentBusDeps) {
     const folder = projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
     r.projectedName = session || folder || "Pi session";
     const generic = !session || session === folder;
-    const explicit = r.explicitLabel ? publishedLabel(r.explicitLabel) : undefined;
-    r.label = explicit ?? (generic ? taskLabel(r.work) : undefined) ?? r.projectedName;
+    r.label = r.explicitLabel ?? (generic ? r.autoLabel : undefined) ?? r.projectedName;
     const doc = { agentId: r.id, sessionId: r.sessionId, host: deps.hostname?.() ?? "unknown",
       cwd: deps.cwd?.() ?? r.ctx.cwd, sessionName: r.projectedName, label: r.label,
       model: r.model,
@@ -262,14 +210,20 @@ export function createRuntime(deps: AgentBusDeps) {
         if (result.status === "ok") {
           r.lastPut = now(); r.error = undefined;
           const tabLabel = doc.label as string;
-          const shown = clipLabel(tabLabel, TAB_LABEL_MAX);
           const sessionName = projectName(deps.pi?.getSessionName() ?? '');
-          // Do not turn the generic cwd fallback into a permanent Herdr tab name.
+          // Only meaningful titles reach Herdr, never the generic cwd fallback.
           const distinctName = sessionName && sessionName !== projectName(cwdBasename(deps.cwd?.() ?? r.ctx.cwd));
-          if (shown && r.ctx.mode === 'tui' && (r.explicitLabel || r.work.objective || distinctName) &&
-              r.label === tabLabel && r.tabLabelAttempted !== shown) {
-            r.tabLabelAttempted = shown;
-            void (deps.nameTab ?? nameUnlabelledTab)(shown, env).catch(() => {});
+          if (r.ctx.mode === 'tui' && (r.explicitLabel || r.autoLabel || distinctName) && r.label === tabLabel && !r.tabSyncBusy) {
+            r.tabSyncBusy = true;
+            const sessionGeneration = r.sessionGeneration;
+            const isCurrent = () => online(r) && r.label === tabLabel && r.sessionGeneration === sessionGeneration;
+            void (deps.nameTab ?? nameUnlabelledTab)(tabLabel, env, undefined, { previous: r.tabOwnership, isCurrent }).then(ownership => {
+              if (!ownership || !isCurrent()) return;
+              if (JSON.stringify(ownership) !== JSON.stringify(r.tabOwnership)) {
+                r.tabOwnership = ownership;
+                deps.pi?.appendEntry(HERDR_LABEL_ENTRY, ownership);
+              }
+            }).catch(() => {}).finally(() => { r.tabSyncBusy = false; });
           }
           cancelTimer(r, "lease");
           r.lease = timers.setTimeout(() => { r.lease = undefined; if (online(r)) refreshHealth(r); }, 15000);
@@ -352,20 +306,54 @@ export function createRuntime(deps: AgentBusDeps) {
     r.inbox = claimed.state;
     deliverControl(r, claimed.control);
   }
-  function taskLabel(work: WorkSnapshot): string | undefined {
-    const objective = work.objective ? condenseLabel(work.objective) : undefined;
-    const step = work.currentStep ? condenseLabel(work.currentStep, 40) : undefined;
-    if (!objective) return step ? validateLabel(step) : undefined;
-    if (!step || step === objective) return validateLabel(objective);
-    const joined = `${objective}: ${step}`;
-    return validateLabel(Array.from(joined).length <= LABEL_SUMMARY_MAX ? joined : objective);
+  function goalAim(r: Run): LabelAim | undefined {
+    const entries = r.ctx.sessionManager.getBranch();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry.type !== 'custom' || entry.customType !== 'goal') continue;
+      const data = entry.data as { goal?: { objective?: unknown; status?: unknown } } | undefined;
+      const goal = data?.goal;
+      return goal && goal.status !== 'complete' && typeof goal.objective === 'string' ? labelAim(goal.objective) : undefined;
+    }
+    return;
   }
-  function publishPromptWork(r: Run, text: string) {
-    if (text.startsWith("Agent bus ") || text.startsWith("[Network-authorized operator")) return;
-    const step = Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 180).join("");
-    if (!step) return;
-    r.work = { ...r.work, objective: r.work.objective ?? step, currentStep: step, phase: r.work.phase ?? "implementing" };
-    metadata(r); requestPut(r); void r.announcer?.tick();
+  const aimKey = (aim: LabelAim) => createHash('sha256').update(JSON.stringify(aim)).digest('hex');
+  function offerLabel(r: Run, aim?: LabelAim) {
+    const selected = goalAim(r) ?? aim;
+    if (!selected) return;
+    if (aimKey(selected) === r.autoAimKey) { r.labeller?.reset(); return; }
+    r.labeller?.offer({ aim: selected, previous: r.autoLabel,
+      sessionAim: r.work.objective ? labelAim(r.work.objective)?.text : undefined,
+      project: cwdBasename(deps.cwd?.() ?? r.ctx.cwd) });
+  }
+  function restoreAim(ctx: ExtensionContext): LabelAim | undefined {
+    for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+      if (entry.type !== 'message' || entry.message.role !== 'user') continue;
+      const content = entry.message.content;
+      const text = typeof content === 'string' ? content : content.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      const aim = labelAim(text);
+      if (aim) return aim;
+    }
+    return;
+  }
+  function restoreTabOwnership(ctx: ExtensionContext): TabOwnership | undefined {
+    const entry = [...ctx.sessionManager.getBranch()].reverse().find(entry => entry.type === 'custom' && entry.customType === HERDR_LABEL_ENTRY);
+    if (entry?.type !== 'custom' || !entry.data || typeof entry.data !== 'object') return;
+    const data = entry.data as Record<string, unknown>;
+    if (['socket', 'pane', 'tab', 'label'].every(key => typeof data[key] === 'string')) return data as TabOwnership;
+    return;
+  }
+  function restoreAutoAimKey(ctx: ExtensionContext): string | undefined {
+    const entry = [...ctx.sessionManager.getBranch()].reverse().find(entry => entry.type === 'custom' && entry.customType === AUTO_LABEL_ENTRY);
+    if (entry?.type !== 'custom') return;
+    const data = entry.data as { aimKey?: unknown } | undefined;
+    return typeof data?.aimKey === 'string' && /^[0-9a-f]{64}$/.test(data.aimKey) ? data.aimKey : undefined;
+  }
+  function restoreAutoLabel(ctx: ExtensionContext): string | undefined {
+    const entry = [...ctx.sessionManager.getBranch()].reverse().find(entry => entry.type === 'custom' && entry.customType === AUTO_LABEL_ENTRY);
+    if (entry?.type !== 'custom') return;
+    const data = entry.data as { label?: unknown } | undefined;
+    return typeof data?.label === 'string' ? parseLabelResponse(JSON.stringify({ label: data.label })) : undefined;
   }
   function scheduleBurst(r: Run) {
     if (r.burst !== undefined || (!r.arrivals && !r.warnings)) return;
@@ -383,6 +371,7 @@ export function createRuntime(deps: AgentBusDeps) {
   function close(r: Run) {
     if (r.closed) return;
     r.closed = true; generation++; r.control = false; invalidateConsent(r);
+    r.labeller?.stop();
     cancelTimer(r, "retry"); cancelTimer(r, "heartbeat"); cancelTimer(r, "lease"); cancelTimer(r, "burst");
     r.announcer?.stop(); r.bridge?.stop(); r.operatorConfirmation?.abort(); r.binding = undefined;
     r.lifetime.abort(); r.abort.abort(); r.stream?.abort(); r.stream = undefined;
@@ -469,6 +458,17 @@ export function createRuntime(deps: AgentBusDeps) {
         coordinationScope: coordinationScopeFromBranch(ctx.sessionManager.getBranch()), scopeRevision: 0,
         readState: freshReadState(), operatorCache: emptyOperatorCache() };
       current = r;
+      r.autoLabel = restoreAutoLabel(ctx); r.autoAimKey = restoreAutoAimKey(ctx); r.tabOwnership = restoreTabOwnership(ctx);
+      if (env.PI_AGENT_BUS_AUTO_LABEL !== '0') r.labeller = createLabelQueue({ timers,
+        current: () => online(r) && !r.explicitLabel && (!deps.pi?.getSessionName() || deps.pi.getSessionName() === cwdBasename(deps.cwd?.() ?? r.ctx.cwd)),
+        summarize: (request, signal) => (deps.summarizeLabel ?? summarizeLabel)(r.ctx, request, AbortSignal.any([signal, r.lifetime.signal]), env.PI_AGENT_BUS_LABEL_MODEL),
+        apply: (result, request) => {
+          r.autoLabel = result.label; r.autoAimKey = aimKey(request.aim);
+          deps.pi?.appendEntry(AUTO_LABEL_ENTRY, { label: result.label, aimKey: r.autoAimKey, provider: result.provider, model: result.model, usage: result.usage });
+          r.channelDirty = true; metadata(r); requestPut(r);
+        },
+      });
+      offerLabel(r, restoreAim(ctx));
       r.announcer = createAnnouncer({ now,
         snapshot: () => ({ schemaVersion: 1, agentId: r.id, sessionId: r.sessionId,
           runtimeGeneration: String(r.generation), sessionGeneration: String(r.sessionGeneration),
@@ -507,6 +507,7 @@ export function createRuntime(deps: AgentBusDeps) {
       const r = current; if (!r || !active(r)) return;
       r.ctx = ctx;
       if (branch) {
+        r.labeller?.reset(); r.autoLabel = restoreAutoLabel(ctx); r.autoAimKey = restoreAutoAimKey(ctx); r.tabOwnership = restoreTabOwnership(ctx);
         r.explicitLabel = restoreLabel(ctx); r.work = restoreWork(ctx);
         const scope = coordinationScopeFromBranch(ctx.sessionManager.getBranch());
         if (scope !== r.coordinationScope) { r.coordinationScope = scope; r.scopeRevision++; r.channelDirty = true; }
@@ -514,13 +515,23 @@ export function createRuntime(deps: AgentBusDeps) {
         r.readState = dropReadState(r.readState);
         r.sessionGeneration++; r.branchId = branchAnchor(ctx); r.binding = undefined;
       }
-      requestPut(r, true);
+      offerLabel(r, branch ? restoreAim(ctx) : undefined); requestPut(r, true);
+    },
+    input(event: { text: string; source: string }, ctx: ExtensionContext) {
+      const r = current; if (!r || !online(r) || event.source !== 'interactive') return;
+      r.ctx = ctx;
+      const aim = labelAim(event.text);
+      if (!aim) return;
+      const step = Array.from(aim.text).slice(0, 180).join('');
+      r.work = { ...r.work, objective: r.work.objective ?? step, currentStep: step };
+      offerLabel(r, aim); metadata(r); requestPut(r);
     },
     setBusy(busy: boolean, ctx?: ExtensionContext) {
       const r = current; if (!r || !active(r)) return;
       if (ctx) r.ctx = ctx;
       if (busy && r.runId === null) r.runId = uuid();
       if (!busy && r.runId !== null) { const ended = r.runId; r.runId = null; r.bridge?.settled(ended); }
+      offerLabel(r);
       r.busy = busy; r.channelDirty = true; requestPut(r);
     },
     toolActivity(event: { toolCallId: string; toolName: string; isError?: boolean }, state: 'started' | 'ended', ctx?: ExtensionContext) {
@@ -542,7 +553,6 @@ export function createRuntime(deps: AgentBusDeps) {
       if (text !== undefined) {
         const hadSlot = r.inbox.pendingControl !== null;
         r.inbox = consumeUserMessage(r.inbox, text);
-        publishPromptWork(r, text);
         if (hadSlot && !r.inbox.pendingControl) {
           const claimed = claimNoticeDelivery(r.inbox);
           r.inbox = claimed.state;
@@ -582,6 +592,7 @@ export function createRuntime(deps: AgentBusDeps) {
       const label = clear ? undefined : validateLabel(text);
       if (!clear && !label) throw new Error("label must be nonempty, single-line and at most 200 code points");
       deps.pi?.appendEntry(LABEL_ENTRY, { label: label ?? "" });
+      r.labeller?.reset();
       r.explicitLabel = label; r.channelDirty = true; metadata(r); requestPut(r); return r.label;
     },
     label: () => current?.label ?? "agent bus unavailable",
@@ -593,13 +604,15 @@ export function createRuntime(deps: AgentBusDeps) {
       const stored = structuredClone(captured);
       deps.pi?.appendEntry(WORK_ENTRY, { work: stored });
       r.work = stored;
-      if (!r.explicitLabel && typeof label === "string") {
-        const authored = validateLabel(condenseLabel(label) ?? "");
+      // Compatibility for model-authored short labels, never turn an objective into a manual override.
+      if (!r.explicitLabel && typeof label === 'string') {
+        const authored = parseLabelResponse(JSON.stringify({ label }));
         if (authored) {
-          deps.pi?.appendEntry(LABEL_ENTRY, { label: authored });
-          r.explicitLabel = authored;
+          r.labeller?.reset(); r.autoLabel = authored;
+          deps.pi?.appendEntry(AUTO_LABEL_ENTRY, { label: authored });
         }
       }
+      offerLabel(r, stored.objective ? labelAim(stored.objective) : undefined);
       r.channelDirty = true; metadata(r); requestPut(r);
       return structuredClone(stored);
     },

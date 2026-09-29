@@ -25,6 +25,7 @@ function bindHost(pi: ExtensionAPI, runtime: ReturnType<typeof createRuntime>): 
   pi.on('tool_execution_start', (event, ctx) => runtime.toolActivity(event, 'started', ctx));
   pi.on('tool_execution_end', (event, ctx) => runtime.toolActivity(event, 'ended', ctx));
   pi.on("before_agent_start", () => runtime.beforeAgentStart());
+  pi.on("input", (event, ctx) => runtime.input(event, ctx));
   pi.on("message_start", event => runtime.messageStart(event.message));
   pi.registerMessageRenderer("agent-bus-mail", (message, options) => new Text(safeText(typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.type === "text" ? block.text : "").join("\n")), options.outputPad, 0));
   bindCommands(pi, runtime);

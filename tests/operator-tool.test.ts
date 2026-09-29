@@ -26,7 +26,7 @@ test('work tool records explicit metadata without granting permissions or claimi
   } finally { await runtime.sessionShutdown(); }
 });
 
-test('work tool maps slug ids and labels folder-only sessions from the objective', async () => {
+test('work tool maps slug ids without copying objectives into presence', async () => {
   const sdk = host(), clock = new Clock();
   const runtime = createAgentBusExtension({ pi: sdk.pi, uuid: () => agentA, cwd: () => '/tmp/work',
     env: { PI_AGENT_BUS_TOKEN: 'synthetic' }, timers: clock, now: () => clock.time,
@@ -38,7 +38,7 @@ test('work tool maps slug ids and labels folder-only sessions from the objective
     const stored = runtime.currentWork();
     assert.equal(stored.workId, stableWorkUuid('pr-1453-review'));
     assert.equal(stored.objective, 'Review PR 1453');
-    assert.equal(runtime.label(), 'Review PR 1453');
+    assert.equal(runtime.label(), 'work');
     assert.equal(result.details.work.workId, stored.workId);
     assert.equal(sdk.entries.some(entry => entry.type === 'agent-bus-label'), false);
   } finally { await runtime.sessionShutdown(); }
@@ -58,7 +58,7 @@ test('work tool does not replace an explicit session name with the objective', a
   } finally { await runtime.sessionShutdown(); }
 });
 
-test('work tool prefers a short label and condenses a long objective instead of copying it', async () => {
+test('work tool accepts a short generated label without locking out manual ownership', async () => {
   const sdk = host(), clock = new Clock();
   const runtime = createAgentBusExtension({ pi: sdk.pi, uuid: () => agentA, cwd: () => '/tmp/work',
     env: { PI_AGENT_BUS_TOKEN: 'synthetic' }, timers: clock, now: () => clock.time,
@@ -69,13 +69,14 @@ test('work tool prefers a short label and condenses a long objective instead of 
     const objective = 'Can you please review a good labeller solution for simplifying asks and setting labels in herdr tabs and in the bus so it is an efficient summary rather than the entire goal text of a given session';
     await tool.execute('call', { objective }, undefined);
     assert.equal(runtime.currentWork().objective, objective);
-    assert.equal(runtime.label(), 'review a good labeller solution for simplifying asks');
+    assert.equal(runtime.label(), 'work');
     assert.ok(!runtime.label().includes('entire goal text'));
-    sdk.setName('Named session');
-    await tool.execute('call', { objective, label: 'I want you to shorten herdr and bus labels' }, undefined);
-    assert.equal(runtime.label(), 'shorten herdr and bus labels');
-    assert.deepEqual(sdk.entries.find(entry => entry.type === 'agent-bus-label'), { type: 'agent-bus-label', data: { label: 'shorten herdr and bus labels' } });
-    await tool.execute('call', { objective, label: 'replace the short label' }, undefined);
-    assert.equal(runtime.label(), 'shorten herdr and bus labels');
+    await tool.execute('call', { objective, label: 'Shorten session labels' }, undefined);
+    assert.equal(runtime.label(), 'Shorten session labels');
+    assert.equal(sdk.entries.some(entry => entry.type === 'agent-bus-label'), false);
+    assert.deepEqual(sdk.entries.find(entry => entry.type === 'agent-bus-auto-label'), { type: 'agent-bus-auto-label', data: { label: 'Shorten session labels' } });
+    runtime.setLabel('Manual title');
+    await tool.execute('call', { objective, label: 'Replace the short label' }, undefined);
+    assert.equal(runtime.label(), 'Manual title');
   } finally { await runtime.sessionShutdown(); }
 });

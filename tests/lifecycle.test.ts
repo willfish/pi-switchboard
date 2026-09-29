@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { createAgentBusExtension } from "../extension/index.ts";
-import { condenseLabel, projectName, retryDelay, TAB_LABEL_MAX } from "../extension/runtime.ts";
+import { projectName, retryDelay } from "../extension/runtime.ts";
 import { agentA, agentB, context, dormantSubscribe, flush, response, Clock, host, sync, discovery } from "./client-test-helpers.ts";
 import type { subscribeOnce } from "../extension/sse.ts";
 
@@ -143,7 +143,7 @@ it("branch labels use latest matching entry.data, automatic names are separate a
   await f.runtime.sessionShutdown();
 });
 
-it('names a numbered Herdr tab only after a meaningful label registers, once per label', async () => {
+it('syncs meaningful Herdr titles on heartbeats so pane moves are discovered', async () => {
   const labels: string[] = [];
   const f = fixture({ env: { PI_AGENT_BUS_TOKEN: 'synthetic', HERDR_ENV: '1',
     HERDR_SOCKET_PATH: '/synthetic/herdr.sock', HERDR_PANE_ID: 'w1:p1' },
@@ -153,23 +153,77 @@ it('names a numbered Herdr tab only after a meaningful label registers, once per
   f.runtime.setLabel('Updating search dashboard'); await flush();
   assert.deepEqual(labels, ['Updating search dashboard']);
   await f.clock.advance(5000);
-  assert.deepEqual(labels, ['Updating search dashboard']);
+  assert.deepEqual(labels, ['Updating search dashboard', 'Updating search dashboard']);
   await f.runtime.sessionShutdown();
 });
 
-it('condenses a long ask for bus presence and the Herdr tab', async () => {
-  const labels: string[] = [];
+it('silently summarises the raw ask once and sends the same semantic title to presence and Herdr', async () => {
+  const labels: string[] = [], aims: string[] = [];
   const f = fixture({ env: { PI_AGENT_BUS_TOKEN: 'synthetic', HERDR_ENV: '1',
     HERDR_SOCKET_PATH: '/synthetic/herdr.sock', HERDR_PANE_ID: 'w1:p1' },
+    summarizeLabel: async (_ctx: unknown, request: { aim: { text: string } }) => {
+      aims.push(request.aim.text); return { label: 'Improve session labelling', provider: 'synthetic', model: 'fixture', usage: null };
+    },
     nameTab: async (label: string) => { labels.push(label); } });
   f.runtime.sessionStart({}, f.ctx); await flush();
   const objective = 'Can you please review a good labeller solution for simplifying asks and setting labels in herdr tabs and in the bus so it is an efficient summary rather than the entire goal text of a given session';
-  f.runtime.reportWork({ objective }); await flush();
-  assert.equal(f.puts.at(-1).label, 'review a good labeller solution for simplifying asks');
-  assert.equal(labels.length, 1);
-  assert.equal(labels[0], condenseLabel(f.puts.at(-1).label, TAB_LABEL_MAX));
-  assert.ok(Array.from(labels[0]).length <= TAB_LABEL_MAX);
-  assert.equal(labels[0]?.includes('entire goal text'), false);
+  f.sdk.events.get('input')!({ source: 'interactive', text: objective }, f.ctx);
+  await flush(); assert.equal(f.puts.at(-1).label, 'work'); assert.deepEqual(labels, []);
+  await f.clock.advance(600); await flush();
+  assert.equal(f.puts.at(-1).label, 'Improve session labelling');
+  assert.deepEqual(labels, ['Improve session labelling']);
+  assert.deepEqual(aims, [objective]); assert.deepEqual(f.sdk.injected, []);
+  f.sdk.events.get('input')!({ source: 'interactive', text: 'carry on' }, f.ctx);
+  f.runtime.messageStart({ role: 'user', content: '<skill name="test" location="/private">\nSkill instructions\n</skill>', timestamp: 0 });
+  await f.clock.advance(5000); assert.equal(aims.length, 1);
+  assert.equal(f.runtime.currentWork().currentStep, Array.from(objective).slice(0, 180).join(''));
+  await f.runtime.sessionShutdown();
+});
+
+it('active goals outrank follow-up asks and unchanged goals survive reload without another model call', async () => {
+  const aims: string[] = [];
+  const f = fixture({ summarizeLabel: async (_ctx: unknown, request: { aim: { text: string } }) => {
+    aims.push(request.aim.text); return { label: 'Repair parser semantics', provider: 'synthetic', model: 'fixture', usage: null };
+  } });
+  const branch: any[] = [{ type: 'custom', customType: 'goal', data: { version: 3, goal: { objective: 'Repair the parser semantics across clients', status: 'active' } } }];
+  const ctx = context({ sessionManager: { getBranch: () => branch } });
+  f.runtime.sessionStart({}, ctx); await flush();
+  f.runtime.input({ source: 'interactive', text: 'Check the test runner configuration' }, ctx);
+  f.runtime.input({ source: 'extension', text: '<skill name="bad">instructions</skill>' }, ctx);
+  await f.clock.advance(600); await flush();
+  assert.deepEqual(aims, ['Repair the parser semantics across clients']);
+  assert.equal(f.runtime.label(), 'Repair parser semantics');
+  for (const entry of f.sdk.entries as Array<{ type: string; data: unknown }>) branch.push({ type: 'custom', customType: entry.type, data: entry.data });
+  f.runtime.sessionStart({ reason: 'reload' }, ctx); await flush(); await f.clock.advance(1000);
+  assert.equal(aims.length, 1); assert.equal(f.runtime.label(), 'Repair parser semantics');
+  await f.runtime.sessionShutdown();
+});
+
+it('late automatic labels cannot overwrite manual labels or a different branch', async () => {
+  for (const change of ['manual', 'branch', 'shutdown']) {
+    let resolve!: (value: unknown) => void;
+    const f = fixture({ summarizeLabel: () => new Promise(done => { resolve = done; }) });
+    f.runtime.sessionStart({}, f.ctx); await flush();
+    f.runtime.input({ source: 'interactive', text: 'Fix the parser' }, f.ctx);
+    await f.clock.advance(600);
+    if (change === 'manual') f.runtime.setLabel('Manual title');
+    if (change === 'branch') f.runtime.refresh(context(), true);
+    if (change === 'shutdown') await f.runtime.sessionShutdown();
+    resolve({ label: 'Stale title', provider: 'synthetic', model: 'fixture', usage: null }); await flush();
+    assert.notEqual(f.runtime.label(), 'Stale title');
+    assert.equal((f.sdk.entries as any[]).some(e => e.type === 'agent-bus-auto-label'), false);
+    if (change === 'manual') assert.equal(f.runtime.label(), 'Manual title');
+    await f.runtime.sessionShutdown();
+  }
+});
+
+it('restored generated titles remain separate from manual labels and branch-local', async () => {
+  const f = fixture();
+  const ctx = context({ sessionManager: { getBranch: () => [{ type: 'custom', customType: 'agent-bus-auto-label', data: { label: 'Repair parser semantics' } }] } });
+  f.runtime.sessionStart({}, ctx); await flush();
+  assert.equal(f.runtime.label(), 'Repair parser semantics');
+  f.runtime.refresh(context(), true); await flush();
+  assert.equal(f.runtime.label(), 'work');
   await f.runtime.sessionShutdown();
 });
 

@@ -137,7 +137,27 @@ to a cached or substitute target.
 Model tools: `list_agents`, `set_agent_label`, `send_agent_message`,
 `report_work`, `list_channels`, `read_channel`, `post_channel`,
 `update_channel_status`, `get_coordination_guidance`, `set_coordination_scope`.
-`report_work` may include a concise `label` of at most 60 code points. Herdr tabs and bus presence show that summary, or a condensed objective, not the full goal text.
+Session titles are generated silently from the active goal or user intent captured
+before skill expansion. Only that bounded intent, the project basename and the
+previous title go to the configured model, without tools or conversation history.
+Skill bodies, injected messages and routine continuations do not become titles.
+The existing title remains when generation fails; the full goal stays in work
+metadata. `/label` and explicit Pi session names override automatic naming.
+
+Automatic titles use at most 48 characters. A split tab belongs to its oldest
+pane; helpers keep their own bus labels without renaming the shared tab. Herdr
+names resolve from the caller pane, not UI focus. Numeric tabs can be named;
+only a title recorded as owned on this session branch can later be updated.
+Manual changes and existing named tabs are preserved. Reloading does not
+regenerate an unchanged goal. Herdr lacks atomic conditional renaming, so the
+client rechecks topology and the observed name immediately before writing.
+
+Set `PI_AGENT_BUS_AUTO_LABEL=0` to disable model naming, or
+`PI_AGENT_BUS_LABEL_MODEL=provider/model` to choose an authenticated model.
+The default prefers xAI Grok 4.7, then OpenCode Go GLM 5.3 Flash/GLM 5.3, then
+the current Codex model. Calls are debounced, bounded to 15 seconds, and not
+retried for the same aim. Usage is stored with generated-title metadata.
+`report_work.label` remains an optional short generated-title hint.
 None of them enable consent. An explicit branch-local scope supplies the default
 channel. Reads default to recent history; `mode: "new"` avoids repeating returned
 message context. Optional linked notes and `view: "brief"` expose handoff claims

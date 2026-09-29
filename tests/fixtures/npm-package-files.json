@@ -18,6 +18,7 @@
   "extension/herdr-tab.ts",
   "extension/inbox.ts",
   "extension/index.ts",
+  "extension/labelling.ts",
   "extension/operator-announcer.ts",
   "extension/operator-binding.ts",
   "extension/operator-bridge.ts",
